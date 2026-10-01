@@ -15,21 +15,21 @@ graph TD
         Client["Browser / Lit A2UI Renderer Client"]
     end
 
-    subgraph Orchestration_Tier["2. Orchestration Tier (Cloud Run)"]
-        LeadOrchestrator["Lead Orchestrator (`orchestrator.py`)"]
-        Router["Intent Router (`router.py`)"]
-        MCPClient["MCP Bridge (`mcp_client.py`)"]
-        Catalog["A2UI Catalog (`catalog.json`)"]
+    subgraph Orchestration_Tier["2. Orchestration Tier [Cloud Run]"]
+        LeadOrchestrator["Lead Orchestrator [orchestrator.py]"]
+        Router["Intent Router [router.py]"]
+        MCPClient["MCP Bridge [mcp_client.py]"]
+        Catalog["A2UI Catalog [catalog.json]"]
     end
 
     subgraph Governance["3. Architectural Governance"]
-        GuidelinesMCP["Guidelines FastMCP Server (`gea-agents-arch-guidelines-mcp-server`)"]
+        GuidelinesMCP["Guidelines FastMCP Server [gea-agents-arch-guidelines-mcp-server]"]
     end
 
-    subgraph Worker_Tier["4. Reusable Worker Tier (`packages/graphagent`)"]
-        PrimeKGWorker["PrimeKG Worker Agent (`adk/agent.py`)"]
-        GQLTools["ISO GQL Tools (`tools/gql_tools.py`)"]
-        SQLTools["BigQuery SQL Tools (`tools/sql_tools.py`)"]
+    subgraph Worker_Tier["4. Reusable Worker Tier [packages/graphagent]"]
+        PrimeKGWorker["PrimeKG Worker Agent [adk/agent.py]"]
+        GQLTools["ISO GQL Tools [tools/gql_tools.py]"]
+        SQLTools["BigQuery SQL Tools [tools/sql_tools.py]"]
     end
 
     subgraph Storage_Tier["5. Enterprise Data & Storage Tier"]

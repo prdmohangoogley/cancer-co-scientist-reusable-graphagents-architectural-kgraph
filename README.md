@@ -20,38 +20,38 @@ All architectural decisions, design patterns, and security guardrails are contin
 
 ```mermaid
 graph TD
-    User["Clinician / Cancer Researcher"] --> UI["A2UI Renderer Client (`apps/co-scientist/ui`)"]
-    UI -->|Natural Language Queries / SSE| Orchestrator["Lead Orchestrator (`apps/co-scientist/agent/orchestrator.py`)"]
+    User["Clinician / Cancer Researcher"] --> UI["A2UI Renderer Client [apps/co-scientist/ui]"]
+    UI -->|Natural Language Queries / SSE| Orchestrator["Lead Orchestrator [apps/co-scientist/agent/orchestrator.py]"]
     
-    subgraph Governance["1. Architectural Governance Tier (FastMCP)"]
-        MCPClient["MCP Bridge (`apps/co-scientist/agent/mcp_client.py`)"]
-        MCPServer["Guidelines FastMCP Server (`gea-agents-arch-guidelines-mcp-server`)"]
-        SpannerArch["Cloud Spanner Graph (`ArchGuidelinesGraph`)"]
-        BQArch["BigQuery Analytics (`gea_arch_guidelines_analytics`)"]
+    subgraph Governance["1. Architectural Governance Tier [FastMCP]"]
+        MCPClient["MCP Bridge [apps/co-scientist/agent/mcp_client.py]"]
+        MCPServer["Guidelines FastMCP Server [gea-agents-arch-guidelines-mcp-server]"]
+        SpannerArch["Cloud Spanner Graph [ArchGuidelinesGraph]"]
+        BQArch["BigQuery Analytics [gea_arch_guidelines_analytics]"]
         MCPClient <-->|stdio / HTTP SSE| MCPServer
         MCPServer -->|ISO GQL ~13ms| SpannerArch
         MCPServer -->|Analytical SQL| BQArch
     end
     
     Orchestrator --> MCPClient
-    Orchestrator --> Router["Router & Intent Classifier (`apps/co-scientist/agent/router.py`)"]
+    Orchestrator --> Router["Router & Intent Classifier [apps/co-scientist/agent/router.py]"]
     
-    subgraph WorkerTier["2. Reusable Worker Tier (`packages/graphagent`)"]
-        Router --> Worker["PrimeKG Graph Agent Worker (`adk/agent.py`)"]
-        Worker --> Traversal["GQL Traversal Tools (`tools/gql_tools.py`)"]
-        Worker --> Analytics["BigQuery Feature Tools (`tools/sql_tools.py`)"]
+    subgraph WorkerTier["2. Reusable Worker Tier [packages/graphagent]"]
+        Router --> Worker["PrimeKG Graph Agent Worker [adk/agent.py]"]
+        Worker --> Traversal["GQL Traversal Tools [tools/gql_tools.py]"]
+        Worker --> Analytics["BigQuery Feature Tools [tools/sql_tools.py]"]
     end
 
     subgraph DataStorage["3. Enterprise Knowledge Stores"]
-        Traversal --> Spanner["Google Cloud Spanner Graph (`PrimeKGGraph`)"]
+        Traversal --> Spanner["Google Cloud Spanner Graph [PrimeKGGraph]"]
         Analytics --> BQ["Google BigQuery Analytics"]
-        DataLoader["PrimeKG Ingestion Pipelines (`data_loaders/`)"] --> Spanner
+        DataLoader["PrimeKG Ingestion Pipelines [data_loaders]"] --> Spanner
         DataLoader --> BQ
-        GCS["OKF Data Lake (`infra/datalake`)"] --> DataLoader
+        GCS["OKF Data Lake [infra/datalake]"] --> DataLoader
     end
 
     Worker -->|Typed Biomedical Facts| Orchestrator
-    Orchestrator -->|Declarative A2UI JSON Payloads (Zero XSS)| UI
+    Orchestrator -->|Declarative A2UI JSON Payloads - Zero XSS| UI
 ```
 
 ---
