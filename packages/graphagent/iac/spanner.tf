@@ -1,9 +1,10 @@
 # Cloud Spanner Instance for PrimeKG Knowledge Graph
 resource "google_spanner_instance" "primekg_spanner" {
-  name         = "primekg-instance-${var.environment}"
-  config       = "regional-${var.region}"
-  display_name = "PrimeKG Graph Spanner Instance"
-  num_nodes    = var.spanner_num_nodes
+  project          = var.project_id
+  name             = "primekg-instance-${var.environment}"
+  config           = "regional-${var.region}"
+  display_name     = "PrimeKG Graph Spanner Instance"
+  processing_units = var.spanner_processing_units
 
   labels = {
     environment = var.environment
@@ -17,6 +18,7 @@ resource "google_spanner_instance" "primekg_spanner" {
 resource "google_spanner_database" "primekg_db" {
   instance = google_spanner_instance.primekg_spanner.name
   name     = "primekg-database"
+  project  = var.project_id
 
   ddl = [
     <<-EOT
@@ -26,42 +28,49 @@ resource "google_spanner_database" "primekg_db" {
       name STRING(256) NOT NULL,
       properties_json JSON,
       created_at TIMESTAMP OPTIONS (allow_commit_timestamp = true)
-    ) PRIMARY KEY (node_id);
+    ) PRIMARY KEY (node_id)
     EOT
     ,
     <<-EOT
     CREATE TABLE Edges (
-      edge_id STRING(128) NOT NULL,
       source_id STRING(128) NOT NULL,
       target_id STRING(128) NOT NULL,
+      edge_id STRING(128) NOT NULL,
       relationship STRING(64) NOT NULL,
       confidence FLOAT64,
       evidence_json JSON,
       created_at TIMESTAMP OPTIONS (allow_commit_timestamp = true),
       FOREIGN KEY (source_id) REFERENCES Nodes (node_id),
       FOREIGN KEY (target_id) REFERENCES Nodes (node_id)
-    ) PRIMARY KEY (source_id, target_id, edge_id);
+    ) PRIMARY KEY (source_id, target_id, edge_id)
     EOT
     ,
     <<-EOT
-    CREATE PROPERTY GRAPH PrimeKGGraph
-      NODE TABLES (
+    CREATE OR REPLACE PROPERTY GRAPH PrimeKGGraph
+      NODE TABLES(
         Nodes
-          LABEL Gene WHERE label = 'Gene'
-          LABEL Disease WHERE label = 'Disease'
-          LABEL Drug WHERE label = 'Drug'
-          LABEL Pathway WHERE label = 'Pathway'
+          KEY(node_id)
+          LABEL Node PROPERTIES(
+            node_id,
+            label,
+            name,
+            properties_json,
+            created_at)
       )
-      EDGE TABLES (
+      EDGE TABLES(
         Edges
-          SOURCE KEY (source_id) REFERENCES Nodes (node_id)
-          DESTINATION KEY (target_id) REFERENCES Nodes (node_id)
-          LABEL TARGETS WHERE relationship = 'TARGETS'
-          LABEL INDICATION WHERE relationship = 'INDICATION'
-          LABEL ASSOCIATED_WITH WHERE relationship = 'ASSOCIATED_WITH'
-          LABEL INTERACTS_WITH WHERE relationship = 'INTERACTS_WITH'
-          LABEL PART_OF_PATHWAY WHERE relationship = 'PART_OF_PATHWAY'
-      );
+          KEY(source_id, target_id, edge_id)
+          SOURCE KEY(source_id) REFERENCES Nodes(node_id)
+          DESTINATION KEY(target_id) REFERENCES Nodes(node_id)
+          LABEL Edge PROPERTIES(
+            edge_id,
+            source_id,
+            target_id,
+            relationship,
+            confidence,
+            evidence_json,
+            created_at)
+      )
     EOT
   ]
 

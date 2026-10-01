@@ -1,6 +1,7 @@
 variable "project_id" {
   description = "The Google Cloud Project ID"
   type        = string
+  default     = "fivedaysai-prd-sandbox-317383"
 }
 
 variable "region" {
@@ -15,8 +16,8 @@ variable "environment" {
   default     = "dev"
 }
 
-variable "spanner_num_nodes" {
-  description = "Number of compute nodes for Spanner instance"
+variable "spanner_processing_units" {
+  description = "Processing units for Spanner instance (100 PU = 0.1 node, cost-effective for dev)"
   type        = number
-  default     = 1
+  default     = 100
 }
