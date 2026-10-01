@@ -101,9 +101,36 @@ class PrimeKGLoader:
 
     def build_canonical_id(self, entity_type: str, entity_id: str, source: str) -> str:
         """Construct deterministic, collision-free canonical node identifier."""
-        clean_id = str(entity_id).strip()
-        clean_src = str(source).strip().upper()
-        return f"{clean_src}:{clean_id}"
+        import hashlib
+        clean_id = str(entity_id).strip().strip('"')
+        clean_src = str(source).strip().strip('"').upper()
+        full_id = f"{clean_src}:{clean_id}"
+        if len(full_id) > 120:
+            full_id = f"{clean_src}:{clean_id[:60]}_{hashlib.sha256(clean_id.encode('utf-8')).hexdigest()[:16]}"
+        return full_id[:128]
+
+
+    def load_nodes_index(self, nodes_tab_path: Path) -> dict[str, dict[str, str]]:
+        """Load nodes.tab dictionary mapping node_index to node details."""
+        index: dict[str, dict[str, str]] = {}
+        if not nodes_tab_path.exists():
+            logger.warning(f"nodes.tab not found at {nodes_tab_path}. Falling back to empty index.")
+            return index
+
+        logger.info(f"Loading node dictionary from {nodes_tab_path}...")
+        with open(nodes_tab_path, "r", encoding="utf-8") as f:
+            reader = csv.DictReader(f, delimiter="\t")
+            for row in reader:
+                idx = row.get("node_index", "").strip()
+                if idx:
+                    index[idx] = {
+                        "id": row.get("node_id", "").strip().strip('"'),
+                        "type": row.get("node_type", "").strip().strip('"'),
+                        "name": row.get("node_name", "").strip().strip('"'),
+                        "source": row.get("node_source", "").strip().strip('"'),
+                    }
+        logger.info(f"Loaded {len(index):,} nodes into memory index.")
+        return index
 
     def stream_kg_triples(
         self,
@@ -121,40 +148,41 @@ class PrimeKGLoader:
         with open(csv_file_path, mode="r", encoding="utf-8") as f:
             reader = csv.DictReader(f)
             for row in reader:
-                x_id = row.get("x_id", "").strip()
-                y_id = row.get("y_id", "").strip()
+                x_id = row.get("x_id", "").strip().strip('"')
+                y_id = row.get("y_id", "").strip().strip('"')
                 if not x_id or not y_id:
                     continue
 
-                x_source = row.get("x_source", "NCBI")
-                y_source = row.get("y_source", "NCBI")
+                x_source = row.get("x_source", "NCBI").strip().strip('"')
+                y_source = row.get("y_source", "NCBI").strip().strip('"')
                 source_node_id = self.build_canonical_id(row.get("x_type", ""), x_id, x_source)
                 target_node_id = self.build_canonical_id(row.get("y_type", ""), y_id, y_source)
 
                 source_node = {
                     "node_id": source_node_id,
                     "label": self.normalize_node_label(row.get("x_type", "")),
-                    "name": row.get("x_name", ""),
+                    "name": row.get("x_name", "").strip().strip('"'),
                     "properties_json": json.dumps({
                         "raw_id": x_id,
                         "source": x_source,
-                        "raw_type": row.get("x_type", ""),
+                        "raw_type": row.get("x_type", "").strip().strip('"'),
                     }),
                 }
 
                 target_node = {
                     "node_id": target_node_id,
                     "label": self.normalize_node_label(row.get("y_type", "")),
-                    "name": row.get("y_name", ""),
+                    "name": row.get("y_name", "").strip().strip('"'),
                     "properties_json": json.dumps({
                         "raw_id": y_id,
                         "source": y_source,
-                        "raw_type": row.get("y_type", ""),
+                        "raw_type": row.get("y_type", "").strip().strip('"'),
                     }),
                 }
 
                 rel = self.normalize_relation(row.get("relation", ""))
-                edge_id = f"{source_node_id}->{rel}->{target_node_id}"
+                import hashlib
+                edge_id = hashlib.sha256(f"{source_node_id}->{rel}->{target_node_id}".encode()).hexdigest()[:32]
                 edge = {
                     "edge_id": edge_id,
                     "source_id": source_node_id,
@@ -162,8 +190,8 @@ class PrimeKGLoader:
                     "relationship": rel,
                     "confidence": 1.0,
                     "evidence_json": json.dumps({
-                        "display_relation": row.get("display_relation", ""),
-                        "raw_relation": row.get("relation", ""),
+                        "display_relation": row.get("display_relation", "").strip().strip('"'),
+                        "raw_relation": row.get("relation", "").strip().strip('"'),
                     }),
                 }
 
@@ -172,18 +200,102 @@ class PrimeKGLoader:
                 if limit and records_count >= limit:
                     break
 
+    def stream_balanced_kg_triples(
+        self,
+        csv_file_path: Path,
+        relation_targets: dict[str, int] | None = None,
+    ) -> Iterator[Tuple[dict[str, Any], dict[str, Any], dict[str, Any]]]:
+        """Stream balanced sample across key biomedical relations (DOC-09)."""
+        if not csv_file_path.exists():
+            raise FileNotFoundError(f"PrimeKG file not found at: {csv_file_path}")
+
+        import hashlib
+        if relation_targets is None:
+            relation_targets = {
+                "drug_protein": 2000,
+                "disease_protein": 2000,
+                "indication": 2000,
+                "pathway_protein": 2000,
+                "protein_protein": 2000,
+            }
+
+        collected: dict[str, int] = {k: 0 for k in relation_targets}
+        logger.info(f"Streaming balanced triples with targets: {relation_targets}")
+
+        with open(csv_file_path, mode="r", encoding="utf-8") as f:
+            reader = csv.DictReader(f)
+            for row in reader:
+                rel = row.get("relation", "").strip().strip('"')
+                if rel in relation_targets and collected[rel] < relation_targets[rel]:
+                    x_id = row.get("x_id", "").strip().strip('"')
+                    y_id = row.get("y_id", "").strip().strip('"')
+                    if not x_id or not y_id:
+                        continue
+
+                    x_source = row.get("x_source", "NCBI").strip().strip('"')
+                    y_source = row.get("y_source", "NCBI").strip().strip('"')
+                    source_node_id = self.build_canonical_id(row.get("x_type", ""), x_id, x_source)
+                    target_node_id = self.build_canonical_id(row.get("y_type", ""), y_id, y_source)
+
+                    source_node = {
+                        "node_id": source_node_id,
+                        "label": self.normalize_node_label(row.get("x_type", "")),
+                        "name": row.get("x_name", "").strip().strip('"'),
+                        "properties_json": json.dumps({
+                            "raw_id": x_id,
+                            "source": x_source,
+                            "raw_type": row.get("x_type", "").strip().strip('"'),
+                        }),
+                    }
+
+                    target_node = {
+                        "node_id": target_node_id,
+                        "label": self.normalize_node_label(row.get("y_type", "")),
+                        "name": row.get("y_name", "").strip().strip('"'),
+                        "properties_json": json.dumps({
+                            "raw_id": y_id,
+                            "source": y_source,
+                            "raw_type": row.get("y_type", "").strip().strip('"'),
+                        }),
+                    }
+
+                    norm_rel = self.normalize_relation(rel)
+                    edge_id = hashlib.sha256(f"{source_node_id}->{norm_rel}->{target_node_id}".encode()).hexdigest()[:32]
+                    edge = {
+                        "edge_id": edge_id,
+                        "source_id": source_node_id,
+                        "target_id": target_node_id,
+                        "relationship": norm_rel,
+                        "confidence": 1.0,
+                        "evidence_json": json.dumps({
+                            "display_relation": row.get("display_relation", "").strip().strip('"'),
+                            "raw_relation": rel,
+                        }),
+                    }
+
+                    collected[rel] += 1
+                    yield source_node, target_node, edge
+
+                    if all(collected[k] >= relation_targets[k] for k in relation_targets):
+                        logger.info("Satisfied all relation target quotas.")
+                        break
+
+
+
     def ingest_to_spanner(
         self,
         kg_csv_path: Path,
         batch_size: int = 1000,
         limit: int | None = None,
+        balanced: bool = False,
+        relation_targets: dict[str, int] | None = None,
         dry_run: bool = False,
     ) -> IngestionStats:
         """Stream and commit batches of nodes and edges into Cloud Spanner Graph."""
         stats = IngestionStats()
         start_time = time.time()
         logger.info(
-            f"Starting Spanner Graph ingestion from {kg_csv_path} (limit={limit}, batch_size={batch_size}, dry_run={dry_run})"
+            f"Starting Spanner Graph ingestion from {kg_csv_path} (balanced={balanced}, limit={limit}, batch_size={batch_size}, dry_run={dry_run})"
         )
 
         spanner_database = None
@@ -210,9 +322,9 @@ class PrimeKGLoader:
                 edge_batch.clear()
                 return
 
-            try:
-                with spanner_database.batch() as batch:
-                    if node_batch:
+            if node_batch:
+                try:
+                    with spanner_database.batch() as batch:
                         batch.insert_or_update(
                             table="Nodes",
                             columns=["node_id", "label", "name", "properties_json", "created_at"],
@@ -227,7 +339,16 @@ class PrimeKGLoader:
                                 for n in node_batch
                             ],
                         )
-                    if edge_batch:
+                    stats.unique_nodes_staged += len(node_batch)
+                except Exception as e:
+                    logger.error(f"Error committing nodes to Spanner: {e}")
+                    stats.errors.append(str(e))
+                finally:
+                    node_batch.clear()
+
+            if edge_batch:
+                try:
+                    with spanner_database.batch() as batch:
                         batch.insert_or_update(
                             table="Edges",
                             columns=[
@@ -252,18 +373,23 @@ class PrimeKGLoader:
                                 for e in edge_batch
                             ],
                         )
+                    stats.batches_committed += 1
+                    stats.edges_staged += len(edge_batch)
+                except Exception as e:
+                    logger.error(f"Error committing edges to Spanner: {e}")
+                    stats.errors.append(str(e))
+                finally:
+                    edge_batch.clear()
 
-                stats.batches_committed += 1
-                stats.unique_nodes_staged += len(node_batch)
-                stats.edges_staged += len(edge_batch)
-            except Exception as e:
-                logger.error(f"Error committing batch to Spanner: {e}")
-                stats.errors.append(str(e))
-            finally:
-                node_batch.clear()
-                edge_batch.clear()
 
-        for source_node, target_node, edge in self.stream_kg_triples(kg_csv_path, limit=limit):
+        if balanced:
+            triple_stream = self.stream_balanced_kg_triples(
+                kg_csv_path, relation_targets=relation_targets
+            )
+        else:
+            triple_stream = self.stream_kg_triples(kg_csv_path, limit=limit)
+
+        for source_node, target_node, edge in triple_stream:
             stats.total_records_read += 1
 
             if source_node["node_id"] not in self._seen_node_ids:
@@ -278,7 +404,7 @@ class PrimeKGLoader:
 
             if len(node_batch) + len(edge_batch) >= batch_size:
                 flush_batch()
-                if stats.batches_committed % 10 == 0:
+                if stats.batches_committed % 5 == 0:
                     logger.info(
                         f"Progress: {stats.total_records_read} records processed ({stats.unique_nodes_staged} nodes, {stats.edges_staged} edges committed)"
                     )
@@ -298,14 +424,16 @@ class PrimeKGLoader:
         staging_dir: Path,
         dry_run: bool = False,
     ) -> dict[str, int]:
-        """Ingest disease_features and drug_features into BigQuery tables."""
+        """Ingest disease_features and drug_features into BigQuery tables with indexed names."""
         counts = {"disease_features": 0, "drug_features": 0}
         if dry_run or self.use_mock:
             logger.info("Dry-run / mock mode: BigQuery ingestion skipped.")
             return {"disease_features": 100, "drug_features": 100}
 
+        import re
         from google.cloud import bigquery
 
+        nodes_index = self.load_nodes_index(staging_dir / "nodes.tab")
         bq_client = bigquery.Client(project=self.project_id)
         timestamp_now = datetime.now(timezone.utc).isoformat()
 
@@ -317,13 +445,33 @@ class PrimeKGLoader:
             with open(disease_file, "r", encoding="utf-8") as f:
                 reader = csv.DictReader(f, delimiter="\t")
                 for row in reader:
+                    mondo_id = row.get("mondo_id", "").strip().strip('"')
+                    disease_name = row.get("mondo_name", "").strip().strip('"')
+                    if not disease_name:
+                        node_idx = row.get("node_index", "").strip()
+                        disease_name = nodes_index.get(node_idx, {}).get("name", "")
+                    if not disease_name:
+                        continue
+
+                    clinical_desc = (
+                        row.get("mondo_definition", "")
+                        or row.get("orphanet_clinical_description", "")
+                        or row.get("umls_description", "")
+                    ).strip().strip('"')
+                    phenotypes = (
+                        row.get("mayo_symptoms", "")
+                        or row.get("orphanet_definition", "")
+                    ).strip().strip('"')
+
+                    disease_id = f"MONDO:{mondo_id}" if mondo_id else f"DIS:{disease_name}"
+
                     rows_to_insert.append({
-                        "disease_id": row.get("node_id", row.get("mondo_id", "")),
-                        "disease_name": row.get("node_name", ""),
-                        "mondo_id": row.get("mondo_id", None),
-                        "umls_cui": row.get("umls_cui", None),
-                        "phenotypic_features": row.get("phenotypic_features", None),
-                        "clinical_description": row.get("description", None),
+                        "disease_id": disease_id,
+                        "disease_name": disease_name,
+                        "mondo_id": mondo_id or None,
+                        "umls_cui": row.get("umls_cui", "").strip().strip('"') or None,
+                        "phenotypic_features": phenotypes or None,
+                        "clinical_description": clinical_desc or None,
                         "updated_at": timestamp_now,
                     })
                     if len(rows_to_insert) >= 500:
@@ -346,20 +494,35 @@ class PrimeKGLoader:
             with open(drug_file, "r", encoding="utf-8") as f:
                 reader = csv.DictReader(f, delimiter="\t")
                 for row in reader:
+                    node_idx = row.get("node_index", "").strip().strip('"')
+                    node_info = nodes_index.get(node_idx, {})
+                    drug_name = node_info.get("name", "").strip()
+                    raw_drug_id = node_info.get("id", "").strip()
+                    drug_src = node_info.get("source", "DrugBank").strip().upper()
+                    if not drug_name:
+                        continue
+
                     mw_val = None
-                    try:
-                        mw_str = row.get("molecular_weight", "")
-                        if mw_str:
-                            mw_val = float(mw_str)
-                    except ValueError:
-                        pass
+                    mw_str = row.get("molecular_weight", "")
+                    if mw_str:
+                        m = re.search(r"(\d+(\.\d+)?)", str(mw_str))
+                        if m:
+                            try:
+                                mw_val = float(m.group(1))
+                            except ValueError:
+                                pass
+
+                    drug_id = f"{drug_src}:{raw_drug_id}" if raw_drug_id else f"DRUG:{drug_name}"
 
                     rows_to_insert.append({
-                        "drug_id": row.get("node_id", row.get("drugbank_id", "")),
-                        "drug_name": row.get("node_name", ""),
-                        "indication": row.get("indication", None),
-                        "pharmacodynamics": row.get("pharmacodynamics", None),
-                        "smiles": row.get("smiles", None),
+                        "drug_id": drug_id,
+                        "drug_name": drug_name,
+                        "indication": row.get("indication", "").strip().strip('"') or None,
+                        "pharmacodynamics": (
+                            row.get("pharmacodynamics", "")
+                            or row.get("mechanism_of_action", "")
+                        ).strip().strip('"') or None,
+                        "smiles": None,
                         "molecular_weight": mw_val,
                         "updated_at": timestamp_now,
                     })
@@ -419,6 +582,16 @@ def main() -> None:
         help="Maximum records to ingest (useful for testing and benchmarks)",
     )
     parser.add_argument(
+        "--balanced",
+        action="store_true",
+        help="Stream balanced quota across key relations (TARGETS, INDICATION, ASSOCIATED_WITH, etc.)",
+    )
+    parser.add_argument(
+        "--ingest-features",
+        action="store_true",
+        help="Ingest disease_features and drug_features into BigQuery",
+    )
+    parser.add_argument(
         "--batch-size",
         type=int,
         default=1000,
@@ -447,17 +620,19 @@ def main() -> None:
 
     print("=================================================================")
     print("  PrimeKG Worker Tier Ingestion (Spanner Graph + BigQuery)")
-    print(f"  Source:       {kg_csv}")
-    print(f"  Spanner DB:   {args.spanner_instance}/{args.spanner_database}")
-    print(f"  BigQuery DS:  {args.bq_dataset}")
-    print(f"  Dry Run:      {args.dry_run}")
-    print(f"  Record Limit: {args.limit or 'Full Release'}")
+    print(f"  Source:          {kg_csv}")
+    print(f"  Spanner DB:      {args.spanner_instance}/{args.spanner_database}")
+    print(f"  BigQuery DS:     {args.bq_dataset}")
+    print(f"  Balanced Strat:  {args.balanced}")
+    print(f"  Dry Run:         {args.dry_run}")
+    print(f"  Record Limit:    {args.limit or 'Full Release'}")
     print("=================================================================")
 
     stats = loader.ingest_to_spanner(
         kg_csv_path=kg_csv,
         batch_size=args.batch_size,
         limit=args.limit,
+        balanced=args.balanced,
         dry_run=args.dry_run,
     )
 
@@ -471,6 +646,15 @@ def main() -> None:
     if stats.errors:
         print(f"Errors Encountered:{len(stats.errors)}")
 
+    if args.ingest_features:
+        print("\nIngesting features into BigQuery...")
+        bq_counts = loader.ingest_features_to_bigquery(
+            staging_dir=source_path,
+            dry_run=args.dry_run,
+        )
+        print(f"BigQuery Ingested: {bq_counts}")
+
 
 if __name__ == "__main__":
     main()
+

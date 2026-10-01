@@ -14,7 +14,10 @@ dependencies = [
     "fastapi>=0.111.0",
     "uvicorn[standard]>=0.30.0",
     "sse-starlette>=2.1.0",
+    "pytest>=8.0.0",
+    "pytest-asyncio>=0.23.0",
 ]
+
 
 [tool.uv.sources]
 graphagent = { workspace = true }
@@ -29,3 +32,7 @@ members = [
 [tool.pytest.ini_options]
 testpaths = ["tests", "packages/*/tests", "apps/*/tests"]
 pythonpath = [".", "packages/graphagent", "apps/co-scientist"]
+markers = [
+    "integration: marks tests as live cloud integration tests (deselect with '-m \"not integration\"')",
+]
+

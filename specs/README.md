@@ -26,3 +26,7 @@ Per project requirements, **every specification in this directory must align wit
 | [02-architecture-guidelines-mcp-integration.md](./02-architecture-guidelines-mcp-integration.md) | **Active** | Guidelines FastMCP bridge, stdio/SSE client integration, and validation rules |
 | [03-primekg-dataloader-spec.md](./03-primekg-dataloader-spec.md) | **Active** | Phase 2 PrimeKG data acquisition, GCE fast runner, and GCS landing zone staging |
 | [04-worker-tier-primekg-ingestion-spec.md](./04-worker-tier-primekg-ingestion-spec.md) | **Active** | Phase 3 Worker Tier ingestion into Cloud Spanner Graph (ISO GQL) & BigQuery |
+| [05-worker-tier-graph-traversal-tools-spec.md](./05-worker-tier-graph-traversal-tools-spec.md) | **Active** | Phase 4 Worker Tier Graph Traversal, Query Tools (ISO GQL / BigQuery) & ADK |
+| [06-graphagents-adkworkers-spec.md](./06-graphagents-adkworkers-spec.md) | **Active** | Phase 6 Reusable Graph Agent Library (ADK Workers), Algorithm Engine & Telemetry |
+
+

@@ -2,7 +2,20 @@
 
 from __future__ import annotations
 
-from .agent import PrimeKGWorkerAgent
-from .traversal import SubgraphResult, TraversalConfig
+from .traversal import GraphEdge, GraphNode, SubgraphResult, TraversalConfig
 
-__all__ = ["PrimeKGWorkerAgent", "TraversalConfig", "SubgraphResult"]
+
+def __getattr__(name: str):
+    if name == "PrimeKGWorkerAgent":
+        from .agent import PrimeKGWorkerAgent
+        return PrimeKGWorkerAgent
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+
+
+__all__ = [
+    "PrimeKGWorkerAgent",
+    "TraversalConfig",
+    "SubgraphResult",
+    "GraphEdge",
+    "GraphNode",
+]
