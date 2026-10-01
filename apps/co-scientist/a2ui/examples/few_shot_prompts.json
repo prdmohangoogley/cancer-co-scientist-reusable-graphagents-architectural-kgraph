@@ -1,0 +1,57 @@
+[
+  {
+    "user_query": "What are the primary targetable kinase pathways in EGFR-mutant Non-Small Cell Lung Cancer, and what drugs can be repurposed?",
+    "intent": "DRUG_REPURPOSING",
+    "a2ui_payload": {
+      "type": "A2UI_SURFACE",
+      "surface_id": "surf_egfr_nsclc_01",
+      "components": [
+        {
+          "component": "InsightCard",
+          "id": "c1",
+          "props": {
+            "title": "High-Confidence EGFR Signaling Vulnerability in NSCLC",
+            "subtitle": "Targeting primary EGFR exon 19 del and exon 21 L858R mutations",
+            "severity": "critical",
+            "summary": "Multi-hop traversal identifies hyperactivation of the MAPK/ERK and PI3K/AKT signaling cascades. Third-generation TKIs exhibit 94%+ binding affinity.",
+            "confidence_score": 0.96,
+            "tags": ["NSCLC", "EGFR", "Kinase Inhibitors", "PrimeKG"]
+          }
+        },
+        {
+          "component": "DrugRepurposingTable",
+          "id": "c2",
+          "props": {
+            "title": "Ranked Repurposing & Targeted Candidates",
+            "candidates": [
+              {
+                "drug_id": "DRUGBANK:DB12683",
+                "drug_name": "Osimertinib",
+                "target_gene": "EGFR (T790M)",
+                "clinical_phase": "Phase 4 / Approved",
+                "mechanism": "Irreversible 3rd-gen EGFR TKI",
+                "confidence": 0.98
+              },
+              {
+                "drug_id": "DRUGBANK:DB00530",
+                "drug_name": "Erlotinib",
+                "target_gene": "EGFR",
+                "clinical_phase": "Phase 4 / Approved",
+                "mechanism": "Reversible 1st-gen EGFR TKI",
+                "confidence": 0.94
+              },
+              {
+                "drug_id": "DRUGBANK:DB06601",
+                "drug_name": "Afatinib",
+                "target_gene": "ERBB2 / EGFR",
+                "clinical_phase": "Phase 4 / Approved",
+                "mechanism": "Pan-HER covalent inhibitor",
+                "confidence": 0.91
+              }
+            ]
+          }
+        }
+      ]
+    }
+  }
+]

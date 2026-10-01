@@ -1,0 +1,18 @@
+{
+  "mcpServers": {
+    "gea-arch-guidelines": {
+      "command": "/Users/prdmohan/.local/bin/uv",
+      "args": [
+        "--directory",
+        "/Users/prdmohan/ge_spark_workspace/projects/architecture_best_practices_mcp",
+        "run",
+        "gea-mcp-server",
+        "--transport",
+        "stdio"
+      ],
+      "env": {
+        "USE_MOCK_GRAPH": "true"
+      }
+    }
+  }
+}

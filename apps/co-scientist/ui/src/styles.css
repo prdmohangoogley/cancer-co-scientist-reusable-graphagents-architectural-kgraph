@@ -1,0 +1,297 @@
+:root {
+  --bg-primary: #0f172a;
+  --bg-surface: #1e293b;
+  --bg-surface-elevated: #334155;
+  --border-color: #334155;
+  --text-main: #f8fafc;
+  --text-muted: #94a3b8;
+  --primary-accent: #38bdf8;
+  --primary-hover: #0284c7;
+  --success: #10b981;
+  --warning: #f59e0b;
+  --danger: #ef4444;
+  --font-family: 'Google Sans', -apple-system, BlinkMacSystemFont, sans-serif;
+  --font-mono: 'Roboto Mono', monospace;
+}
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  background-color: var(--bg-primary);
+  color: var(--text-main);
+  font-family: var(--font-family);
+  line-height: 1.5;
+  min-height: 100vh;
+}
+
+.app-layout {
+  display: flex;
+  flex-direction: column;
+  min-height: 100vh;
+}
+
+.app-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 1rem 2rem;
+  background-color: var(--bg-surface);
+  border-bottom: 1px solid var(--border-color);
+}
+
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+}
+
+.brand-icon {
+  font-size: 2rem;
+}
+
+.brand-text h1 {
+  font-size: 1.25rem;
+  font-weight: 700;
+  color: #fff;
+}
+
+.brand-badge {
+  font-size: 0.75rem;
+  color: var(--primary-accent);
+  font-family: var(--font-mono);
+}
+
+.header-status {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.85rem;
+  color: var(--text-muted);
+}
+
+.status-indicator.online {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background-color: var(--success);
+  box-shadow: 0 0 8px var(--success);
+}
+
+.main-container {
+  flex: 1;
+  max-width: 1200px;
+  width: 100%;
+  margin: 0 auto;
+  padding: 2rem 1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+}
+
+.inquiry-bar {
+  background-color: var(--bg-surface);
+  padding: 1rem;
+  border-radius: 12px;
+  border: 1px solid var(--border-color);
+}
+
+.inquiry-form {
+  display: flex;
+  gap: 0.75rem;
+}
+
+.inquiry-form input {
+  flex: 1;
+  padding: 0.85rem 1.25rem;
+  border-radius: 8px;
+  border: 1px solid var(--border-color);
+  background-color: var(--bg-primary);
+  color: #fff;
+  font-size: 1rem;
+  font-family: var(--font-family);
+  outline: none;
+}
+
+.inquiry-form input:focus {
+  border-color: var(--primary-accent);
+}
+
+.btn-primary {
+  padding: 0.85rem 1.5rem;
+  border-radius: 8px;
+  background-color: var(--primary-accent);
+  color: #0f172a;
+  border: none;
+  font-weight: 700;
+  cursor: pointer;
+  transition: background-color 0.2s;
+}
+
+.btn-primary:hover {
+  background-color: var(--primary-hover);
+}
+
+.a2ui-surface {
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+}
+
+.placeholder-state {
+  text-align: center;
+  padding: 4rem 1rem;
+  color: var(--text-muted);
+}
+
+.quick-prompts {
+  display: flex;
+  justify-content: center;
+  gap: 0.75rem;
+  margin-top: 1.5rem;
+  flex-wrap: wrap;
+}
+
+.chip-prompt {
+  background-color: var(--bg-surface);
+  border: 1px solid var(--border-color);
+  color: var(--primary-accent);
+  padding: 0.5rem 1rem;
+  border-radius: 20px;
+  cursor: pointer;
+  font-size: 0.85rem;
+  transition: all 0.2s;
+}
+
+.chip-prompt:hover {
+  background-color: var(--bg-surface-elevated);
+  border-color: var(--primary-accent);
+}
+
+/* A2UI Rendered Component Styles */
+.a2ui-card {
+  background-color: var(--bg-surface);
+  border: 1px solid var(--border-color);
+  border-radius: 12px;
+  padding: 1.5rem;
+}
+
+.a2ui-card.critical {
+  border-left: 4px solid var(--danger);
+}
+
+.a2ui-card.info {
+  border-left: 4px solid var(--primary-accent);
+}
+
+.card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  margin-bottom: 0.75rem;
+}
+
+.card-title {
+  font-size: 1.25rem;
+  font-weight: 700;
+}
+
+.card-subtitle {
+  font-size: 0.85rem;
+  color: var(--text-muted);
+}
+
+.confidence-badge {
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  background-color: rgba(56, 189, 248, 0.15);
+  color: var(--primary-accent);
+  padding: 0.25rem 0.5rem;
+  border-radius: 4px;
+}
+
+.card-tags {
+  display: flex;
+  gap: 0.5rem;
+  margin-top: 1rem;
+}
+
+.tag-badge {
+  font-size: 0.75rem;
+  background-color: var(--bg-surface-elevated);
+  padding: 0.2rem 0.6rem;
+  border-radius: 4px;
+  color: var(--text-muted);
+}
+
+/* A2UI Table Component */
+.a2ui-table-container {
+  background-color: var(--bg-surface);
+  border: 1px solid var(--border-color);
+  border-radius: 12px;
+  padding: 1.5rem;
+  overflow-x: auto;
+}
+
+.a2ui-table {
+  width: 100%;
+  border-collapse: collapse;
+  text-align: left;
+}
+
+.a2ui-table th {
+  padding: 0.75rem 1rem;
+  background-color: var(--bg-surface-elevated);
+  color: var(--text-muted);
+  font-size: 0.85rem;
+  text-transform: uppercase;
+}
+
+.a2ui-table td {
+  padding: 0.85rem 1rem;
+  border-bottom: 1px solid var(--border-color);
+  font-size: 0.9rem;
+}
+
+.a2ui-table tr:hover td {
+  background-color: rgba(255, 255, 255, 0.02);
+}
+
+/* A2UI Graph Component */
+.a2ui-graph-container {
+  background-color: var(--bg-surface);
+  border: 1px solid var(--border-color);
+  border-radius: 12px;
+  padding: 1.5rem;
+}
+
+.graph-stats {
+  display: flex;
+  gap: 1.5rem;
+  margin-bottom: 1rem;
+  font-family: var(--font-mono);
+  font-size: 0.85rem;
+  color: var(--primary-accent);
+}
+
+.node-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.node-chip {
+  padding: 0.35rem 0.75rem;
+  border-radius: 6px;
+  font-size: 0.8rem;
+  background-color: var(--bg-surface-elevated);
+  border: 1px solid var(--border-color);
+}
+
+.node-chip.Gene { border-color: #3b82f6; color: #93c5fd; }
+.node-chip.Disease { border-color: #ef4444; color: #fca5a5; }
+.node-chip.Drug { border-color: #10b981; color: #6ee7b7; }
+.node-chip.Pathway { border-color: #f59e0b; color: #fde68a; }

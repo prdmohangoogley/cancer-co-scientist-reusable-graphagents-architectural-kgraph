@@ -1,0 +1,74 @@
+{
+  "type": "A2UI_SURFACE",
+  "surface_id": "surf_cancer_discovery_7157",
+  "timestamp": "2026-10-01T12:00:00Z",
+  "version": "1.0",
+  "components": [
+    {
+      "component": "InsightCard",
+      "id": "card_tp53_insight",
+      "props": {
+        "title": "TP53 Pathway Dysregulation in High-Grade Serous Ovarian Carcinoma",
+        "subtitle": "Analysis from PrimeKG multi-hop traversal",
+        "severity": "critical",
+        "summary": "TP53 loss-of-function mutations drive genomic instability and homologous recombination deficiency (HRD). Synthetic lethality confirmed with PARP inhibition.",
+        "confidence_score": 0.99,
+        "tags": ["Ovarian Cancer", "TP53", "Synthetic Lethality", "PARP"]
+      }
+    },
+    {
+      "component": "KnowledgeGraphView",
+      "id": "kg_tp53_subgraph",
+      "props": {
+        "layout": "force-directed",
+        "nodes": [
+          { "id": "NCBI:7157", "label": "Gene", "name": "TP53", "properties": { "role": "Tumor Suppressor" } },
+          { "id": "NCBI:672", "label": "Gene", "name": "BRCA1", "properties": { "role": "DNA Repair" } },
+          { "id": "MONDO:0008170", "label": "Disease", "name": "Ovarian Carcinoma", "properties": { "tier": "High-Grade" } },
+          { "id": "DRUGBANK:DB09074", "label": "Drug", "name": "Olaparib", "properties": { "class": "PARP Inhibitor" } },
+          { "id": "REACTOME:R-HSA-5693532", "label": "Pathway", "name": "DNA Double-Strand Break Repair", "properties": {} }
+        ],
+        "edges": [
+          { "source_id": "NCBI:7157", "target_id": "MONDO:0008170", "relationship": "ASSOCIATED_WITH", "confidence": 0.99, "evidence_source": "COSMIC" },
+          { "source_id": "NCBI:672", "target_id": "MONDO:0008170", "relationship": "ASSOCIATED_WITH", "confidence": 0.98, "evidence_source": "ClinVar" },
+          { "source_id": "NCBI:7157", "target_id": "NCBI:672", "relationship": "INTERACTS_WITH", "confidence": 0.94, "evidence_source": "BioGRID" },
+          { "source_id": "DRUGBANK:DB09074", "target_id": "NCBI:672", "relationship": "TARGETS", "confidence": 0.97, "evidence_source": "DrugBank" },
+          { "source_id": "NCBI:672", "target_id": "REACTOME:R-HSA-5693532", "relationship": "PART_OF_PATHWAY", "confidence": 0.99, "evidence_source": "Reactome" }
+        ]
+      }
+    },
+    {
+      "component": "DrugRepurposingTable",
+      "id": "table_tp53_therapeutics",
+      "props": {
+        "title": "Therapeutic Options Exploiting HRD and DNA Repair Deficits",
+        "candidates": [
+          {
+            "drug_id": "DRUGBANK:DB09074",
+            "drug_name": "Olaparib",
+            "target_gene": "PARP1 / BRCA1/2",
+            "clinical_phase": "Phase 4 / Approved",
+            "mechanism": "Poly (ADP-ribose) polymerase inhibitor",
+            "confidence": 0.98
+          },
+          {
+            "drug_id": "DRUGBANK:DB11771",
+            "drug_name": "Niraparib",
+            "target_gene": "PARP1 / PARP2",
+            "clinical_phase": "Phase 4 / Approved",
+            "mechanism": "Selective PARP-1/-2 inhibitor",
+            "confidence": 0.96
+          },
+          {
+            "drug_id": "DRUGBANK:DB11977",
+            "drug_name": "Rucaparib",
+            "target_gene": "PARP1 / PARP2",
+            "clinical_phase": "Phase 4 / Approved",
+            "mechanism": "Small molecule PARP inhibitor",
+            "confidence": 0.95
+          }
+        ]
+      }
+    }
+  ]
+}

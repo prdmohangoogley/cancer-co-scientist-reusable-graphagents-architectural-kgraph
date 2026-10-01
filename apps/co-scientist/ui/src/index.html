@@ -1,0 +1,60 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Cancer Co-Scientist — Precision Oncology Intelligence</title>
+  <link rel="stylesheet" href="./styles.css" />
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Google+Sans:wght@400;500;700&family=Roboto+Mono:wght@400;500&display=swap" rel="stylesheet">
+</head>
+<body>
+  <div class="app-layout">
+    <header class="app-header">
+      <div class="brand">
+        <span class="brand-icon">🩺</span>
+        <div class="brand-text">
+          <h1>Cancer Co-Scientist</h1>
+          <span class="brand-badge">A2UI Declarative Interface &bull; PrimeKG Multi-Agent</span>
+        </div>
+      </div>
+      <div class="header-status">
+        <span class="status-indicator online"></span>
+        <span class="status-text">Guidelines FastMCP Active (DOC-03)</span>
+      </div>
+    </header>
+
+    <main class="main-container">
+      <section class="inquiry-bar">
+        <form id="inquiry-form" class="inquiry-form">
+          <input
+            id="query-input"
+            type="text"
+            placeholder="Ask oncology question (e.g. 'What are targetable kinase pathways in EGFR-mutant lung cancer?')"
+            autocomplete="off"
+            required
+          />
+          <button type="submit" id="submit-btn" class="btn-primary">
+            <span>Analyze Graph</span>
+          </button>
+        </form>
+      </section>
+
+      <!-- A2UI Declarative Rendering Surface -->
+      <section id="a2ui-surface" class="a2ui-surface">
+        <div class="placeholder-state">
+          <p>Enter a query above or click a quick prompt to render real-time declarative A2UI components.</p>
+          <div class="quick-prompts">
+            <button class="chip-prompt" data-query="What drugs target EGFR pathways in non-small cell lung carcinoma?">EGFR Lung Cancer Therapeutics</button>
+            <button class="chip-prompt" data-query="Investigate TP53 mutations and synthetic lethality pathways in ovarian cancer">TP53 Ovarian Synthetic Lethality</button>
+            <button class="chip-prompt" data-query="Identify candidate repurposing drugs for KRAS-mutant pancreatic adenocarcinoma">KRAS Pancreatic Repurposing</button>
+          </div>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <script type="module" src="./main.ts"></script>
+</body>
+</html>
