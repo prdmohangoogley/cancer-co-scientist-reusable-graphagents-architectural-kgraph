@@ -59,7 +59,7 @@ graph TD
 | Variable | Target Value | Description |
 | :--- | :--- | :--- |
 | `GCP_PROJECT_ID` | `fivedaysai-prd-sandbox-317383` | Active Google Cloud project |
-| `GCS_PRIMEKG_BUCKET` | `cancer-co-scientist-primekg-data-landingzone-<uuid>` | US Multi-regional GCS landing zone bucket |
+| `GCS_PRIMEKG_BUCKET` | `cancer-co-scientist-primekg-data-landingzone-<unique-id-number>` | US Multi-regional GCS landing zone bucket with unique numeric postfix |
 | `GCS_LOCATION` | `US` | Multi-regional bucket location for global replication |
 | `GCE_MACHINE_TYPE` | `e2-standard-2` | 2 vCPUs, 8 GB RAM, high-throughput network egress/ingress |
 | `GCE_DISK` | `100 GB pd-ssd` | Fast I/O for 1.5GB+ concurrent download, hashing, and compression |

@@ -12,13 +12,14 @@ terraform {
   }
 }
 
-# Unique suffix for landing zone bucket naming
-resource "random_id" "bucket_suffix" {
-  byte_length = 4
+# Unique numeric ID postfix for landing zone bucket naming
+resource "random_integer" "bucket_suffix" {
+  min = 1000000000
+  max = 9999999999
 }
 
 locals {
-  bucket_name = var.gcs_primekg_bucket != "" ? var.gcs_primekg_bucket : "cancer-co-scientist-primekg-data-landingzone-${random_id.bucket_suffix.hex}"
+  bucket_name = var.gcs_primekg_bucket != "" ? var.gcs_primekg_bucket : "cancer-co-scientist-primekg-data-landingzone-${random_integer.bucket_suffix.result}"
 }
 
 # 1. Multi-regional GCS Bucket located in the US for PrimeKG landing zone
