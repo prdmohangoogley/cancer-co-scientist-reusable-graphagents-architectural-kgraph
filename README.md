@@ -112,22 +112,29 @@ graphagents/ (cancer-co-scientist-reusable-graphagents-architectural-kgraph)
 
 ---
 
-## 🔌 Architecture Guidelines MCP Server Setup Guide
+## ⚡ Prerequisites & Mandatory Developer Setup
 
-All architectural patterns, security guardrails, and data modeling standards are governed by the upstream repository:
-👉 **[gea-agents-arch-guidelines-mcp-server](https://github.com/prdmohangoogley/gea-agents-arch-guidelines-mcp-server)**
+> [!IMPORTANT]
+> **READ BEFORE DEVELOPING ANY AGENT**:  
+> In order to develop, extend, or run agents in this project, **setting up the Enterprise Architecture Best Practices MCP Server is a mandatory prerequisite**.  
+> The agent reasoning loops (`orchestrator.py`, `router.py`, and `graphagent`) dynamically query this MCP server to enforce Zero Ambient Authority (`DOC-02`), retrieve operational graph patterns from Cloud Spanner Graph, and guarantee declarative, non-executable A2UI compliance (`DOC-03`). Attempting to develop or test agents without this prerequisite will cause policy validation failures or fallback degradation.
 
-To deploy this MCP server in your own Google Cloud project and connect it to Antigravity, follow these steps:
+### 🛑 Prerequisite 1: Deploy & Configure the Guidelines FastMCP Server
 
-### Step 1: Clone the Guidelines MCP Server
+All architectural patterns, security guardrails, and data modeling standards are governed by the upstream repository:  
+👉 **[https://github.com/prdmohangoogley/gea-agents-arch-guidelines-mcp-server](https://github.com/prdmohangoogley/gea-agents-arch-guidelines-mcp-server)**
+
+To deploy this MCP server in your own Google Cloud project and wire it to Antigravity / IDE, complete the following steps:
+
+#### Step 1.1: Clone the Guidelines MCP Server
 ```bash
 git clone https://github.com/prdmohangoogley/gea-agents-arch-guidelines-mcp-server.git
 cd gea-agents-arch-guidelines-mcp-server
 uv sync
 ```
 
-### Step 2: Deploy Cloud Infrastructure via Terraform
-The MCP server uses Cloud Spanner Graph (`ArchGuidelinesGraph`) for fast property graph traversals and BigQuery (`gea_arch_guidelines_analytics`) for analytics and embeddings.
+#### Step 1.2: Deploy Cloud Spanner Graph & BigQuery Infrastructure (Terraform)
+The MCP server uses Cloud Spanner Graph (`ArchGuidelinesGraph`) for ISO GQL traversals and BigQuery (`gea_arch_guidelines_analytics`) for analytics and embeddings.
 ```bash
 cd iac
 cp terraform.tfvars.example terraform.tfvars
@@ -143,9 +150,9 @@ This provisions:
 - **Cloud Spanner Instance**: `gea-arch-guidelines-spanner`
 - **Spanner Graph Database**: `arch_guidelines_graph` with Property Graph DDL (`Nodes`, `Edges`, `ArchGuidelinesGraph`)
 - **BigQuery Dataset**: `gea_arch_guidelines_analytics` (`guidelines`, `patterns`, `antipatterns`, `guideline_embeddings`)
-- **GCS Bucket**: Corpus and pipeline checkpoints
+- **GCS Bucket**: Corpus checkpoints and pipeline artifacts
 
-### Step 3: Run the Ingestion Pipeline (NL2KG)
+#### Step 1.3: Run the Ingestion Pipeline (NL2KG)
 Triplify the architectural corpus into Spanner Graph and BigQuery:
 ```bash
 # Extract entities and relationships
@@ -155,9 +162,9 @@ uv run nl2kg-pipeline extract --source-dir docs/specs
 uv run nl2kg-pipeline load --project-id your-gcp-project-id
 ```
 
-### Step 4: Deploy the MCP Server
+#### Step 1.4: Deploy the MCP Server (Local Stdio or Cloud Run SSE)
 
-#### Option A: Local Stdio Mode (for Antigravity CLI / Developer IDE)
+**Option A: Local Stdio Mode (Recommended for Development & Antigravity CLI)**  
 Create a `.env` file in the MCP server directory:
 ```ini
 GCP_PROJECT_ID=your-gcp-project-id
@@ -172,7 +179,7 @@ Verify the server starts:
 uv run gea-mcp-server --transport stdio
 ```
 
-#### Option B: Cloud Run SSE Mode (for Shared Team Hosting)
+**Option B: Cloud Run SSE Mode (for Shared Team Hosting)**
 ```bash
 gcloud run deploy gea-arch-guidelines-mcp \
   --source . \
@@ -181,7 +188,7 @@ gcloud run deploy gea-arch-guidelines-mcp \
   --set-env-vars "GCP_PROJECT_ID=your-gcp-project-id,SPANNER_INSTANCE_ID=gea-arch-guidelines-spanner,SPANNER_DATABASE_ID=arch_guidelines_graph,BQ_DATASET_ID=gea_arch_guidelines_analytics,USE_MOCK_GRAPH=false"
 ```
 
-### Step 5: Configure Antigravity MCP Integration
+#### Step 1.5: Configure Antigravity MCP Integration
 Configure Antigravity by adding the server to `~/.gemini/config/mcp_config.json` and `.agents/mcp_config.json`:
 ```json
 {
@@ -209,6 +216,35 @@ Configure Antigravity by adding the server to `~/.gemini/config/mcp_config.json`
   }
 }
 ```
+
+---
+
+### 🛠️ Prerequisite 2: Developer Toolchain & Cloud Access
+Ensure your workstation has the following installed and authenticated:
+- **Python**: 3.11+
+- **UV Package Manager**: `curl -LsSf https://astral.sh/uv/install.sh | sh`
+- **Node.js**: 18+ & npm (for the A2UI client frontend)
+- **Google Cloud SDK (`gcloud`)**: Authenticated with application-default credentials:
+  ```bash
+  gcloud auth application-default login
+  gcloud config set project your-gcp-project-id
+  ```
+- **Terraform**: 1.5.0+ (for global infrastructure in `infra/` and package IaC)
+
+---
+
+### ✅ Prerequisite Verification: Live MCP Benchmarks
+Before starting agent development, verify that your local environment connects live to **Cloud Spanner Graph** and **Google BigQuery**:
+
+```bash
+# 1. Verify Spanner Graph ISO GQL Invocation (~13ms latency)
+python .agents/skills/guidelines_lookup/scripts/lookup.py --best-practice "security"
+
+# 2. Verify BigQuery Analytics Deep Dive
+python .agents/skills/guidelines_lookup/scripts/lookup.py --deep-dive "Quality"
+```
+
+If both commands return `Query Source: spanner_graph` and `Query Source: bigquery_analytics`, your environment is fully primed for agent development.
 
 ---
 
@@ -352,15 +388,9 @@ Under **DOC-03** (*Open AI Agent Protocol Stack*), presentation logic is strictl
 
 ---
 
-## ⚡ Quickstart
+## 🚀 Quickstart & Development
 
-### Prerequisites
-- Python 3.11+
-- [uv](https://github.com/astral-sh/uv) package manager
-- Node.js 18+ (for UI client)
-- Google Cloud SDK (`gcloud`) & Terraform 1.5+
-
-### Installation
+### 1. Workspace Installation
 ```bash
 # Clone the repository
 git clone <repo-url>
@@ -370,16 +400,17 @@ cd cancer-co-scientist-reusable-graphagents-architectural-kgraph
 uv sync
 ```
 
-### Running the Cancer Co-Scientist Web Application
+### 2. Running the Cancer Co-Scientist Web Application
 ```bash
-# 1. Start the Lead Orchestrator backend (Port 8000)
+# Terminal 1: Start the Lead Orchestrator backend (Port 8000)
 uv run uvicorn apps.co_scientist.agent.orchestrator:app --reload --port 8000
 
-# 2. In another terminal, start the A2UI client frontend (Port 5173)
+# Terminal 2: Start the A2UI client frontend (Port 5173)
 cd apps/co-scientist/ui
 npm install
 npm run dev
 ```
+Navigate to `http://localhost:5173` to explore cancer targets and drug candidates interactively.
 
 ---
 
