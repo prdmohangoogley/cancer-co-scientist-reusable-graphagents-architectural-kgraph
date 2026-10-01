@@ -2,6 +2,8 @@
 
 Responsible for:
 1. Architectural compliance verification via Guidelines MCP Server (DOC-01, DOC-02, DOC-03).
+   - Queries Cloud Spanner Graph (ArchGuidelinesGraph) via ISO GQL.
+   - Queries BigQuery (gea_arch_guidelines_analytics) for pattern deep dives.
 2. Intent routing & biomedical entity resolution via IntentRouter.
 3. Subagent task delegation to PrimeKG Worker Agents.
 4. Synthesizing declarative A2UI payloads for client presentation (DOC-03).
@@ -55,13 +57,14 @@ class A2UIResponse(BaseModel):
     intent: str
     components: list[dict[str, Any]]
     guidelines_cited: list[str]
+    governance_metadata: dict[str, Any]
 
 
 class CancerCoScientistOrchestrator:
     """Lead Orchestrator coordinating Guidelines MCP, Intent Router, and Graph Workers."""
 
-    def __init__(self) -> None:
-        self.mcp_client = GuidelinesMCPClient()
+    def __init__(self, use_mock: bool = False) -> None:
+        self.mcp_client = GuidelinesMCPClient(use_mock=use_mock)
         self.router = IntentRouter()
         self.worker = PrimeKGWorkerAgent()
 
@@ -69,10 +72,22 @@ class CancerCoScientistOrchestrator:
         """Main agent loop coordinating guidelines, routing, worker delegation, and A2UI assembly."""
         logger.info(f"Orchestrator received inquiry: '{query}'")
 
-        # 1. Architectural Guidance Verification (DOC-03)
-        # Verify that output must be non-executable A2UI declarative JSON
+        # 1. Architectural Guidance Verification: Live Spanner Graph ISO GQL & BigQuery queries
+        # (a) Query Cloud Spanner Graph for operational best practices
+        spanner_bp = await self.mcp_client.get_best_practice(topic="security")
+        spanner_source = spanner_bp.get("source", "spanner_graph")
+        spanner_latency = spanner_bp.get("latency_ms", 0.0)
+
+        # (b) Query BigQuery Analytics for architectural deep dive
+        bq_deepdive = await self.mcp_client.deep_dive_guideline(component="Security")
+        bq_source = bq_deepdive.get("source", "bigquery_analytics")
+        bq_latency = bq_deepdive.get("latency_ms", 0.0)
+
+        # (c) Search protocol guidelines for A2UI standards
         guidelines = await self.mcp_client.search_guidelines("a2ui")
         guideline_ids = [g.get("id", "DOC-03") for g in guidelines] or ["DOC-03", "DOC-02"]
+
+        logger.info(f"Guidelines MCP query resolved via {spanner_source} ({spanner_latency}ms) and {bq_source} ({bq_latency}ms)")
 
         # 2. Intent Routing & Entity Extraction
         decision = self.router.route_query(query)
@@ -143,18 +158,25 @@ class CancerCoScientistOrchestrator:
                 },
             })
 
-        # Return standardized declarative A2UI payload (DOC-03 compliant)
+        # Return standardized declarative A2UI payload with live MCP execution metadata
         return {
             "type": "A2UI_SURFACE",
             "surface_id": f"surf_{uuid.uuid4().hex[:8]}",
             "intent": decision.intent.value,
             "components": components,
             "guidelines_cited": guideline_ids,
+            "governance_metadata": {
+                "spanner_graph_source": spanner_source,
+                "spanner_graph_latency_ms": spanner_latency,
+                "bigquery_analytics_source": bq_source,
+                "bigquery_latency_ms": bq_latency,
+                "patterns_verified": [p.get("name") for p in spanner_bp.get("patterns", [])[:3]],
+            },
         }
 
 
 # Singleton Orchestrator instance
-orchestrator = CancerCoScientistOrchestrator()
+orchestrator = CancerCoScientistOrchestrator(use_mock=False)
 
 
 @app.get("/health")

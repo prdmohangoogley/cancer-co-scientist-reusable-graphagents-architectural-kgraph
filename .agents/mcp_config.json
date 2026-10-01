@@ -11,7 +11,15 @@
         "stdio"
       ],
       "env": {
-        "USE_MOCK_GRAPH": "true"
+        "GCP_PROJECT_ID": "fivedaysai-prd-sandbox-317383",
+        "PROJECT_ID": "fivedaysai-prd-sandbox-317383",
+        "SPANNER_INSTANCE_ID": "gea-arch-guidelines-spanner",
+        "SPANNER_DATABASE_ID": "arch_guidelines_graph",
+        "BQ_DATASET_ID": "gea_arch_guidelines_analytics",
+        "USE_MOCK_GRAPH": "false",
+        "MCP_USE_MOCK_GRAPH": "false",
+        "GOOGLE_APPLICATION_CREDENTIALS": "/Users/prdmohan/.config/gcloud/application_default_credentials.json",
+        "CLOUDSDK_CORE_PROJECT": "fivedaysai-prd-sandbox-317383"
       }
     }
   }
