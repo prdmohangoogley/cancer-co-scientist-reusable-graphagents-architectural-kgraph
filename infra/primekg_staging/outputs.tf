@@ -24,6 +24,6 @@ output "gce_instance_zone" {
 }
 
 output "staging_pipeline_command" {
-  description = "Example command to execute data acquisition remotely on the GCE runner"
-  value       = "gcloud compute ssh ${google_compute_instance.staging_runner.name} --zone=${google_compute_instance.staging_runner.zone} --command='bash /opt/primekg_pipeline/download_and_stage.sh gs://${google_storage_bucket.primekg_landingzone.name}'"
+  description = "Example command to execute data acquisition remotely on the GCE runner via IAP tunnel"
+  value       = "gcloud compute ssh ${google_compute_instance.staging_runner.name} --zone=${google_compute_instance.staging_runner.zone} --tunnel-through-iap --command='bash /opt/primekg_pipeline/download_and_stage.sh gs://${google_storage_bucket.primekg_landingzone.name}'"
 }

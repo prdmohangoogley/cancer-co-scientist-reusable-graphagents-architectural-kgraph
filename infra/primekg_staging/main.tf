@@ -67,7 +67,37 @@ resource "google_storage_bucket_iam_member" "staging_writer" {
   member = "serviceAccount:${google_service_account.primekg_staging_runner.email}"
 }
 
-# 3. Lightweight Compute Engine Instance with fast uplink for data acquisition
+# 3. Dedicated VPC Network & Subnet for Staging Runner
+resource "google_compute_network" "staging_vpc" {
+  name                    = "primekg-staging-vpc"
+  project                 = var.project_id
+  auto_create_subnetworks = false
+}
+
+resource "google_compute_subnetwork" "staging_subnet" {
+  name                     = "primekg-staging-subnet-${var.region}"
+  project                  = var.project_id
+  region                   = var.region
+  network                  = google_compute_network.staging_vpc.id
+  ip_cidr_range            = "10.10.0.0/24"
+  private_ip_google_access = true
+}
+
+resource "google_compute_firewall" "allow_ssh_iap" {
+  name        = "primekg-staging-allow-ssh"
+  project     = var.project_id
+  network     = google_compute_network.staging_vpc.name
+  description = "Allow IAP and SSH access to runner instance"
+
+  allow {
+    protocol = "tcp"
+    ports    = ["22"]
+  }
+
+  source_ranges = ["35.235.240.0/20", "0.0.0.0/0"]
+}
+
+# 4. Lightweight Compute Engine Instance with fast uplink for data acquisition
 resource "google_compute_instance" "staging_runner" {
   project      = var.project_id
   name         = "primekg-staging-runner-${var.environment}"
@@ -76,17 +106,16 @@ resource "google_compute_instance" "staging_runner" {
 
   boot_disk {
     initialize_params {
-      image = "debian-cloud/debian-12"
+      image = "ubuntu-os-cloud/ubuntu-2204-lts"
       size  = 100 # GB SSD for downloading, extracting, and hashing PrimeKG dumps
       type  = "pd-ssd"
     }
   }
 
   network_interface {
-    network = "default"
-    access_config {
-      // Ephemeral public IP for fast uplink to Harvard Dataverse
-    }
+    network    = google_compute_network.staging_vpc.name
+    subnetwork = google_compute_subnetwork.staging_subnet.name
+    # No public IP: uses Cloud NAT for secure egress, adhering to constraints/compute.vmExternalIpAccess
   }
 
   service_account {
