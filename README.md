@@ -150,19 +150,53 @@ This provisions:
 - **Cloud Spanner Instance**: `gea-arch-guidelines-spanner`
 - **Spanner Graph Database**: `arch_guidelines_graph` with Property Graph DDL (`Nodes`, `Edges`, `ArchGuidelinesGraph`)
 - **BigQuery Dataset**: `gea_arch_guidelines_analytics` (`guidelines`, `patterns`, `antipatterns`, `guideline_embeddings`)
-- **GCS Bucket**: Corpus checkpoints and pipeline artifacts
+#### Step 1.3: Acquire OKF Architecture Data & Dump into Your Own GCS Bucket
+The authoritative Open Knowledge Format (**OKF**) corpus containing all 20 foundational architectural guidelines, concept specifications, schemas, and diagrams is hosted in Google Cloud Storage:
+```text
+gs://gea_agent_development_architectural_best_practices_1790796607/okf/
+├── MANIFEST.json       # Corpus inventory with checksums and document counts (20 docs)
+├── bundle.json         # Complete OKF manifest schema & topic taxonomies
+├── index.md            # Master index of architectural best practices
+├── log.md              # Ingestion changelog and provenance
+├── concepts/           # 20 Enterprise Guidelines (01-ai-agent-quality-engineering.md through 20-*.md)
+└── img/                # 73+ Architectural diagrams and visual blueprints
+```
 
-#### Step 1.3: Run the Ingestion Pipeline (NL2KG)
-Triplify the architectural corpus into Spanner Graph and BigQuery:
+Developers must copy this knowledge bundle into their own project's bucket (or download it locally) to bootstrap their knowledge store:
+
 ```bash
-# Extract entities and relationships
-uv run nl2kg-pipeline extract --source-dir docs/specs
+# 1. Create your target knowledge base GCS bucket (if not using the one created by Terraform)
+gcloud storage buckets create gs://YOUR_TARGET_BUCKET_NAME \
+  --project=your-gcp-project-id \
+  --location=us-central1 \
+  --uniform-bucket-level-access
+
+# 2. Dump/sync the entire OKF bundle directly from the source bucket to your own bucket
+gcloud storage cp --recursive \
+  gs://gea_agent_development_architectural_best_practices_1790796607/okf \
+  gs://YOUR_TARGET_BUCKET_NAME/
+
+# 3. (Optional) Download the OKF documents locally for local pipeline inspection
+mkdir -p data/okf
+gcloud storage cp --recursive \
+  gs://gea_agent_development_architectural_best_practices_1790796607/okf \
+  ./data/
+```
+
+#### Step 1.4: Run the Ingestion Pipeline (NL2KG)
+Triplify the architectural corpus into Cloud Spanner Graph and BigQuery:
+```bash
+# Extract entities and relationships from local concepts or your synced bucket
+uv run nl2kg-pipeline extract --source-dir ./data/okf/concepts/
+
+# Validate extracted graph triples against ontology constraints
+uv run nl2kg-pipeline validate --input-file build/graph/triples.json
 
 # Commit nodes and edges to Cloud Spanner Graph & BigQuery
 uv run nl2kg-pipeline load --project-id your-gcp-project-id
 ```
 
-#### Step 1.4: Deploy the MCP Server (Local Stdio or Cloud Run SSE)
+#### Step 1.5: Deploy the MCP Server (Local Stdio or Cloud Run SSE)
 
 **Option A: Local Stdio Mode (Recommended for Development & Antigravity CLI)**  
 Create a `.env` file in the MCP server directory:
@@ -188,7 +222,7 @@ gcloud run deploy gea-arch-guidelines-mcp \
   --set-env-vars "GCP_PROJECT_ID=your-gcp-project-id,SPANNER_INSTANCE_ID=gea-arch-guidelines-spanner,SPANNER_DATABASE_ID=arch_guidelines_graph,BQ_DATASET_ID=gea_arch_guidelines_analytics,USE_MOCK_GRAPH=false"
 ```
 
-#### Step 1.5: Configure Antigravity MCP Integration
+#### Step 1.6: Configure Antigravity MCP Integration
 Configure Antigravity by adding the server to `~/.gemini/config/mcp_config.json` and `.agents/mcp_config.json`:
 ```json
 {

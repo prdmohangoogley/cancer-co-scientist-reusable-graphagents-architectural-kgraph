@@ -34,13 +34,43 @@ cp terraform.tfvars.example terraform.tfvars
 terraform init && terraform apply
 ```
 
-### 2.2. Triplification & Knowledge Ingestion
+### 2.2. Acquire OKF Architecture Data & Bootstrap Knowledge Base
+The complete 20-document architectural knowledge bundle is hosted in Google Cloud Storage:
+`gs://gea_agent_development_architectural_best_practices_1790796607/okf/`
+
+To bootstrap your own project's knowledge base:
 ```bash
-uv run nl2kg-pipeline extract --source-dir docs/specs
+# 1. Create target GCS bucket in your project
+gcloud storage buckets create gs://YOUR_TARGET_BUCKET_NAME \
+  --project=your-gcp-project \
+  --location=us-central1 \
+  --uniform-bucket-level-access
+
+# 2. Dump/sync the OKF bundle directly to your bucket
+gcloud storage cp --recursive \
+  gs://gea_agent_development_architectural_best_practices_1790796607/okf \
+  gs://YOUR_TARGET_BUCKET_NAME/
+
+# 3. (Optional) Download locally
+mkdir -p data/okf
+gcloud storage cp --recursive \
+  gs://gea_agent_development_architectural_best_practices_1790796607/okf \
+  ./data/
+```
+
+### 2.3. Triplification & Knowledge Ingestion (NL2KG)
+```bash
+# Extract entities and relationships from local concepts or synced bucket
+uv run nl2kg-pipeline extract --source-dir ./data/okf/concepts/
+
+# Validate ontology constraints
+uv run nl2kg-pipeline validate --input-file build/graph/triples.json
+
+# Commit to Cloud Spanner Graph & BigQuery
 uv run nl2kg-pipeline load --project-id your-gcp-project
 ```
 
-### 2.3. Server Deployment
+### 2.4. Server Deployment
 - **Cloud Run (SSE mode)**:
   ```bash
   gcloud run deploy gea-arch-guidelines-mcp \

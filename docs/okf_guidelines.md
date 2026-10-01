@@ -48,3 +48,56 @@ Edges represent directed, typed relationships with confidence scores and source 
 3. **Serving Tier (`packages/graphagent/iac`)**:
    - Converted to Cloud Spanner Graph Property Graph tables (`Nodes`, `Edges`).
    - Feature tables and high-dimensional embeddings loaded into BigQuery.
+
+---
+
+## 4. Enterprise Architectural Best Practices OKF Corpus
+
+In addition to precision oncology graphs, the repository relies on the **Enterprise Agent Architecture Best Practices OKF Corpus** to bootstrap the remote Guidelines FastMCP server (`gea-agents-arch-guidelines-mcp-server`).
+
+### 4.1. Canonical GCS Storage Location
+```text
+gs://gea_agent_development_architectural_best_practices_1790796607/okf/
+├── MANIFEST.json       # Master inventory (20 documents, 73 Mermaid diagrams, 94 tables)
+├── bundle.json         # OKF schema validation rules and domain taxonomies
+├── index.md            # Knowledge base index and reference cross-links
+├── log.md              # Ingestion log & git commit provenance
+├── concepts/           # 20 Foundational Architectural Best Practices (DOC-01 to DOC-20)
+└── img/                # Rendered architectural blueprints and visual diagrams
+```
+
+### 4.2. Instructions for Replicating into Your Own Project Bucket
+To provision the architecture knowledge base in your own GCP project:
+
+```bash
+# 1. Create your target knowledge base GCS bucket
+gcloud storage buckets create gs://YOUR_TARGET_BUCKET_NAME \
+  --project=YOUR_GCP_PROJECT_ID \
+  --location=us-central1 \
+  --uniform-bucket-level-access
+
+# 2. Dump/sync the entire OKF bundle directly from the source bucket to your bucket
+gcloud storage cp --recursive \
+  gs://gea_agent_development_architectural_best_practices_1790796607/okf \
+  gs://YOUR_TARGET_BUCKET_NAME/
+
+# 3. (Optional) Download locally for offline development or local pipeline inspection
+mkdir -p data/okf
+gcloud storage cp --recursive \
+  gs://gea_agent_development_architectural_best_practices_1790796607/okf \
+  ./data/
+```
+
+### 4.3. Ingestion into Cloud Spanner Graph & BigQuery
+Once copied to your bucket or local filesystem, run the NL2KG Triplification pipeline in `gea-agents-arch-guidelines-mcp-server`:
+```bash
+# Triplify documents into nodes and labeled relationships
+uv run nl2kg-pipeline extract --source-dir ./data/okf/concepts/
+
+# Validate ontology constraints
+uv run nl2kg-pipeline validate --input-file build/graph/triples.json
+
+# Load into Cloud Spanner Graph (ArchGuidelinesGraph) and BigQuery
+uv run nl2kg-pipeline load --project-id YOUR_GCP_PROJECT_ID
+```
+
