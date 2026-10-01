@@ -145,10 +145,51 @@ To support multi-hop oncological queries, `primekg_loader.py` is upgraded with:
 
 ---
 
-## 6. Verification & Quality Engineering (DOC-01)
+---
+
+## 6. Telemetry, Observability & Retrieval Metrics Standards (DOC-01, DOC-02)
+
+### 6.1. OpenTelemetry Distributed Tracing & Custom Attributes
+Every graph traversal and analytical enrichment call is enveloped in custom spans:
+- `worker.graph_traversal`: Encloses `SpannerGraphTool.execute_traversal()`.
+  - `gcp.spanner.query_type`: `ISO_GQL`
+  - `gcp.spanner.graph_name`: `PrimeKGGraph`
+  - `graphagent.hop_count`: Number of hops traversed (e.g., `2-hop`, `3-hop`)
+  - `graphagent.entity_source`: Source entity name (`EGFR`, `TP53`)
+  - `graphagent.nodes_returned`: Number of matched nodes
+  - `graphagent.edges_returned`: Number of matched edges
+- `worker.omics_enrichment`: Encloses `BigQueryAnalyticsTool.enrich_subgraph()`.
+  - `gcp.bigquery.table`: `disease_features`, `drug_features`
+  - `graphagent.entities_enriched`: Count of unique entities enriched
+
+### 6.2. Mandatory Retrieval & Agent Decision Observability Metrics
+The Worker Tier enforces the following performance and retrieval SLAs:
+
+| Metric Category | Metric Key | Target SLA | Telemetry Attribute | Description |
+| :--- | :--- | :--- | :--- | :--- |
+| **Latency** | **p50 Latency** | `< 25 ms` | `telemetry.tool.latency.p50` | Median latency for parameterized ISO GQL multi-hop queries |
+| **Latency** | **p95 Latency** | `< 200 ms` | `telemetry.tool.latency.p95` | 95th percentile latency across Spanner Graph traversals |
+| **Latency** | **p99 Latency** | `< 850 ms` | `telemetry.tool.latency.p99` | 99th percentile tail latency with BigQuery feature joins |
+| **Token Consumption** | **Prompt Tokens** | Tracked | `llm.tokens.prompt` | Tokens consumed when worker returns Pydantic subgraphs to caller |
+| **Token Consumption** | **Completion Tokens**| Tracked | `llm.tokens.completion` | Tokens generated in worker reasoning and syntheses |
+| **Token Consumption** | **Cached Tokens** | `> 60%` | `llm.tokens.cached` | Vertex AI token context cache hits for static ontologies |
+| **Retrieval Quality** | **mAP** | `> 0.85` | `eval.retrieval.map` | Mean Average Precision of multi-hop paths retrieved |
+| **Retrieval Quality** | **Precision@k** | `> 0.90` ($k=10$) | `eval.retrieval.precision_at_k` | Precision of top-10 retrieved candidate nodes |
+| **Retrieval Quality** | **Recall@k** | `> 0.82` ($k=10$) | `eval.retrieval.recall_at_k` | Recall of known true biological interactions |
+| **Agent Decision** | **Correct Algorithm Choice**| `> 0.96` | `agent.correct_algorithm_choice` | Accuracy of worker selecting between direct traversal, drug repurposing, and analytical enrichment |
+
+### 6.3. Security & Zero Ambient Authority (DOC-02)
+- **Parameterized SQL/GQL Only**: Raw string formatting of entity names or filters is strictly prohibited to prevent GQL/SQL injection vulnerabilities.
+- **Granular IAM Scoping**: Worker executes with minimum read privileges (`roles/spanner.databaseReader`, `roles/bigquery.dataViewer`). Ambient credentials are never injected into prompt contexts.
+- **Circuit Breaker & Fallback**: If Spanner Graph query exceeds 1,500ms deadline, execution is aborted and returns a structured timeout response with in-memory graph fallback.
+
+---
+
+## 7. Verification & Quality Engineering (DOC-01)
 A test suite under `tests/` verifies the implementation:
 1. `tests/unit/test_traversal_models.py`: Validates Pydantic serialization, constraints, and immutability.
-2. `tests/unit/test_gql_tools.py`: Validates `SpannerGraphTool` mock and parameterization generation.
-3. `tests/unit/test_sql_tools.py`: Validates `BigQueryAnalyticsTool` enrichment logic.
-4. `tests/unit/test_worker_agent.py`: Validates worker coordination and response synthesis.
-5. `tests/integration/test_live_worker_spanner.py`: Live integration test executing parameterized ISO GQL against Google Cloud Spanner Graph and BigQuery.
+2. `tests/unit/test_gql_tools.py`: Validates `SpannerGraphTool` mock, parameterization, and OpenTelemetry span creation.
+3. `tests/unit/test_sql_tools.py`: Validates `BigQueryAnalyticsTool` enrichment logic and telemetry.
+4. `tests/unit/test_worker_agent.py`: Validates worker coordination, response synthesis, and token budgeting.
+5. `tests/integration/test_live_worker_spanner.py`: Live integration test executing parameterized ISO GQL against Google Cloud Spanner Graph and BigQuery, asserting latency p50/p95 targets.
+

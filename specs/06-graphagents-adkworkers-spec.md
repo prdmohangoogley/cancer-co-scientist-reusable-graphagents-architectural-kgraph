@@ -87,18 +87,39 @@ Consolidate the Graph capabilities into a reusable package. Every algorithmic wo
   - `gcp.vertex.agent.workflow_type` (e.g., `Discrete`, `Continuous`, `Temporal`).
   - `gcp.vertex.agent.db_target` (e.g., `Spanner`, `BigQuery`).
 
-### 3. Performance & Latency Metrics
-Configure the ADK environment to emit the following derived metrics:
-- **Tool Latency Breakdowns:** Distinguish between local traversal time, GKE container spin-up, and external API latency.
-- **Continuous Compute Latencies:** Track total runtime of RRT* (AlphaFold) and Boids (PhysiCell) simulation packages.
-- **Success/Error Paths:** Emit custom metrics for GQL pipeline crashes or validation failures.
+### 3. Performance & Retrieval Observability Metrics (DOC-01)
+Configure the ADK environment to emit and monitor the following mandatory metrics:
 
-### 4. Evaluation Harness (`packages/graphagent/evals/`)
-- Create benchmark scripts to inject artificial bottlenecks and verify that the OpenTelemetry pipeline captures latency spikes appropriately.
+| Metric Category | Metric Identifier | Target SLA | Telemetry Attribute | Description |
+| :--- | :--- | :--- | :--- | :--- |
+| **Latency** | **p50 Latency** | `< 45 ms` | `telemetry.algorithm.latency.p50` | Median latency for native discrete GQL traversals (DFS/BFS, Dijkstra) |
+| **Latency** | **p95 Latency** | `< 350 ms` | `telemetry.algorithm.latency.p95` | 95th percentile latency across community detection & PageRank |
+| **Latency** | **p99 Latency** | `< 1200 ms` | `telemetry.algorithm.latency.p99` | 99th percentile tail latency for GKE simulation launch & temporal tracking |
+| **Token Consumption** | **Prompt Tokens** | Tracked | `llm.tokens.prompt` | Input tokens consumed when passing algorithm parameters |
+| **Token Consumption** | **Completion Tokens**| Tracked | `llm.tokens.completion` | Output tokens generated in algorithm synthesis |
+| **Token Consumption** | **Cached Tokens** | `> 65%` | `llm.tokens.cached` | Context caching hit rate for static graph topology definitions |
+| **Retrieval Quality** | **mAP** | `> 0.86` | `eval.retrieval.map` | Mean Average Precision of returned paths/subgraphs across 15 algorithms |
+| **Retrieval Quality** | **Precision@k** | `> 0.89` ($k=10$) | `eval.retrieval.precision_at_k` | Precision of top-$k$ returned entities / pathway nodes |
+| **Retrieval Quality** | **Recall@k** | `> 0.84` ($k=10$) | `eval.retrieval.recall_at_k` | Recall of ground-truth known interaction targets |
+| **Agent Decision** | **Correct Algorithm Choice**| `> 0.95` | `agent.correct_algorithm_choice` | Evaluates whether Worker/Router chose optimal algorithm from the 15-algorithm matrix |
+
+### 4. Security Hardening & Zero Ambient Authority (DOC-02)
+- **Zero Ambient Authority (ZAA)**: Workers execute without ambient cloud credentials; IAM tokens are scoped exclusively to `roles/spanner.databaseReader` and `roles/bigquery.dataViewer`.
+- **GKE Simulation Sandboxing**: Continuous simulation containers (OMPL RRT*, PhysiCell Boids) run as unprivileged users (`USER 10001:10001`) with seccomp profiles and network policies restricting egress to the local cluster.
+
+### 5. Evaluation Harness & Quality Release Gate (`packages/graphagent/evals/`)
+- Golden dataset evaluation test suite (`evals/test_algorithm_routing_eval.py`):
+  - Injects synthetic clinical intent prompts across all 4 categories (Discrete, Structural, Continuous, Temporal).
+  - Asserts that `agent.correct_algorithm_choice` achieves $\ge 95\%$ accuracy before any release is promoted.
+  - Verifies OpenTelemetry trace generation and latency percentiles.
 
 ---
 
 ## ✅ Acceptance Criteria
 - The package is installable locally (`pip install ./packages/graphagent`).
-- Spans for algorithmic Workers successfully emit to Google Cloud Trace with fine-grained custom attributes.
-- Average invocation latency for standard `PrimeKGSight` local traversals meets budget (<100ms) with visible latency breakdowns in telemetry.
+- Spans for all 15 algorithmic Workers successfully emit to Google Cloud Trace with fine-grained custom attributes (`gcp.vertex.agent.workflow_type`, `gcp.vertex.agent.db_target`).
+- Latency meets budget (p50 < 45ms, p95 < 350ms, p99 < 1200ms).
+- Retrieval metrics meet quality thresholds (mAP > 0.86, Precision@10 > 0.89, Recall@10 > 0.84).
+- `agent.correct_algorithm_choice` score is validated at $\ge 95\%$ across the golden evaluation suite.
+- GKE simulation connectors gracefully degrade with fallback heuristic graph statistics when continuous compute is unavailable.
+

@@ -183,3 +183,23 @@ The milestone is verified when:
    - `drug_features.tab` (~10 MB)
    - `nodes.tab` (~8.9 MB)
    - `manifest.json` (~1 KB)
+
+---
+
+## 10. Ingestion Telemetry, Observability & Quality Assurance (DOC-01, DOC-02)
+
+### 10.1. Pipeline Observability & Latency Metrics
+The data acquisition and staging pipeline is instrumented to record:
+- **Download Latency**:
+  - `telemetry.staging.download.latency.p50`: Median chunk download time (< 30s for 100MB chunk).
+  - `telemetry.staging.download.latency.p95`: 95th percentile download time under network congestion (< 90s).
+  - `telemetry.staging.download.latency.p99`: 99th percentile download time (< 180s).
+- **Throughput Metrics**: Ingress bandwidth from Harvard Dataverse (> 25 MB/s sustained on GCE `e2-standard-2`).
+- **GCS Staging Latency**: Parallel composite upload latency to `US` multi-region bucket (< 60s for 1GB file).
+
+### 10.2. Integrity Verification & Error Handling
+- **Cryptographic Hash Assertions**: Every staged file has its SHA-256 computed on the runner VM and verified against Harvard Dataverse manifests before registering in `manifest.json`.
+- **Fault-Tolerant Resumption**: Ingestion commands run with `-C -` byte-range resumption and 5-stage exponential backoff retry policies.
+- **Impact on Downstream Retrieval Quality**:
+  - Validates that zero truncated lines or malformed CSV rows enter the landing zone. Incomplete dumps directly degrade downstream retrieval **mAP** and **Recall@k**; strict staging gates guarantee 100% triple fidelity for the Worker Tier.
+

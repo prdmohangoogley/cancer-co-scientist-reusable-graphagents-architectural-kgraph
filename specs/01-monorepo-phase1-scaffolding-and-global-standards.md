@@ -77,13 +77,39 @@ The Lead Orchestrator constructs an adjacency tree of visual components validate
 - `EvidenceDrawer`: Curated literature citations, PubMed IDs, and clinical trial links.
 
 ### 3.3. Security & Zero Ambient Authority (DOC-02)
-- No ambient Google Cloud credentials passed to prompt context.
-- Cloud Run orchestrator and GCE staging instances authenticate through granular Google IAM Service Accounts with workload identity federation.
-- Containerized workloads run as non-root unprivileged users.
+- **Zero Ambient Authority (ZAA)**: No ambient Google Cloud credentials or raw tokens passed to prompt contexts. Workload identity tokens are minted just-in-time and scoped strictly to minimal necessity (`PAT-ZAA`).
+- **User Registration & Authentication**: Clinicians and researchers authenticate via Google Cloud Identity Platform / OIDC (OAuth2 + PKCE). Endpoints require short-lived (15 min) cryptographically signed JWT session tokens with claims (`sub`, `roles`, `tenant_id`, `exp`).
+- **Container Sandboxing & Hardening**: All Dockerfiles (e.g. `apps/co-scientist/ui/Dockerfile`, Cloud Run services) enforce non-root execution (`USER 10001:10001`) with read-only root filesystems and tmpfs scratch space.
+- **Least Privilege IAM**: The Cloud Run Lead Orchestrator service only requires read permissions on BigQuery and Spanner, and internal invoker access to Worker tier containers.
 
-### 3.4. State Management (DOC-08, DOC-09)
-- Stateless worker agents query Cloud Spanner Graph using deterministic ISO GQL.
-- User session state and multi-turn clinical reasoning history reside in external memory/session stores.
+### 3.4. Telemetry, Observability & Error Handling (DOC-01)
+- **OpenTelemetry Instrumentation**: Distributed tracing across all agent reasoning loops (`invoke_agent`, `call_llm`), tool dispatches (`tool_call`), and database RPCs (`spanner.execute_query`, `bigquery.query`).
+- **Structured Error Taxonomy**: Standardized JSON error schema with correlation IDs (`trace_id`, `span_id`, `user_id`, `session_id`), standardized HTTP error mapping, and defined fallback strategies for degraded backends.
+- **Graceful Degradation**: Fallback to heuristic subgraphs or cached knowledge when remote compute pods (OMPL / PhysiCell) or live databases experience timeouts.
+
+### 3.5. Mandatory Retrieval & Agent Observability Metrics (DOC-01)
+All data retrieval pipelines and agentic reasoning workflows must record and report:
+1. **Latency Breakdowns**:
+   - `telemetry.latency.p50` (< 120 ms)
+   - `telemetry.latency.p95` (< 500 ms)
+   - `telemetry.latency.p99` (< 1500 ms)
+   - Granular breakdown across local memory traversal, Cloud Spanner SPU queries, BigQuery analytical scans, and GKE continuous simulation compute.
+2. **Token Consumption Telemetry**:
+   - `llm.tokens.prompt`: Input context token volume.
+   - `llm.tokens.completion`: Generated response token volume.
+   - `llm.tokens.cached`: Tokens served via Vertex AI context caching (DOC-08 target > 60%).
+3. **Information Retrieval (IR) Quality Metrics**:
+   - **mAP (Mean Average Precision)**: Ranking accuracy of multi-hop biomedical paths (> 0.82).
+   - **Precision@k**: Proportion of retrieved nodes/edges that are medically relevant (> 0.88 at $k=10$).
+   - **Recall@k**: Proportion of known biological interactions successfully retrieved (> 0.80 at $k=10$).
+4. **Agent Decision Quality Metric**:
+   - **`agent.correct_algorithm_choice`**: Golden evaluation and runtime assertion tracking whether the Lead Orchestrator and Router selected the optimal graph algorithm (Dijkstra, A*, BFS/DFS, PageRank, WCC, Transitive Closure, RRT*, Boids) matching the clinician's query (> 0.95 accuracy).
+
+### 3.6. Stateful Context & Memory Bank Standards (DOC-08, DOC-09)
+- **Session Persistence**: Multi-turn chat history (user prompts, agent reasoning, declarative A2UI ASTs) is persisted in Cloud Spanner (`chat_sessions`, `chat_messages`).
+- **Enterprise Memory Bank (`PAT-MEM-BANK`)**: Decouples working conversation memory from persistent factual state:
+  - Asynchronous entity & hypothesis extraction at the end of each turn.
+  - Progressive disclosure and semantic recall using BigQuery vector embeddings, mitigating catastrophic forgetting, session drift, and context window bloat.
 
 ---
 
@@ -93,3 +119,6 @@ The Lead Orchestrator constructs an adjacency tree of visual components validate
 3. `AGENTS.md` and `guidelines_lookup` skill are registered under `.agents/`.
 4. Guidelines MCP server is configured and executable over stdio/SSE.
 5. A2UI catalog definitions and example JSON payloads parse successfully under JSON schema validators.
+6. OpenTelemetry exporters successfully emit trace spans with latency p50/p95/p99, token counts, and retrieval metrics.
+7. Golden evaluation suites assert `agent.correct_algorithm_choice` meets the >95% threshold.
+

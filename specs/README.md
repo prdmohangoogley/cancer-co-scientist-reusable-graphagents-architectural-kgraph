@@ -27,6 +27,34 @@ Per project requirements, **every specification in this directory must align wit
 | [03-primekg-dataloader-spec.md](./03-primekg-dataloader-spec.md) | **Active** | Phase 2 PrimeKG data acquisition, GCE fast runner, and GCS landing zone staging |
 | [04-worker-tier-primekg-ingestion-spec.md](./04-worker-tier-primekg-ingestion-spec.md) | **Active** | Phase 3 Worker Tier ingestion into Cloud Spanner Graph (ISO GQL) & BigQuery |
 | [05-worker-tier-graph-traversal-tools-spec.md](./05-worker-tier-graph-traversal-tools-spec.md) | **Active** | Phase 4 Worker Tier Graph Traversal, Query Tools (ISO GQL / BigQuery) & ADK |
-| [06-graphagents-adkworkers-spec.md](./06-graphagents-adkworkers-spec.md) | **Active** | Phase 6 Reusable Graph Agent Library (ADK Workers), Algorithm Engine & Telemetry |
+| [06-graphagents-adkworkers-spec.md](./06-graphagents-adkworkers-spec.md) | **Active** | Phase 6 Reusable Graph Agent Library (ADK Workers), 15-Algorithm Engine & Telemetry |
+| [07-co-scientist-spec-web-app.md](./07-co-scientist-spec-web-app.md) | **Active** | Phase 7 Lead Orchestrator, A2UI Web App, Security Hardening, Chat History & Memory Bank |
+
+---
+
+## 🎯 Global Mandatory Observability & Quality Standards (Audited Across All Specs)
+
+Every retrieval pipeline, agent reasoning loop, and algorithmic worker in this monorepo must adhere to:
+
+1. **Retrieval Latency Budget**:
+   - **p50**: `< 25-120 ms` (native GQL / 1-hop lookups)
+   - **p95**: `< 200-500 ms` (2-hop traversals & community detection)
+   - **p99**: `< 850-1500 ms` (heavy BigQuery joins & continuous simulations)
+2. **Token Consumption Telemetry**:
+   - Continuous instrumentation of `llm.tokens.prompt`, `llm.tokens.completion`, and `llm.tokens.cached` (>60% cache hit SLA via Vertex AI context caching).
+3. **Information Retrieval (IR) Evaluation Metrics**:
+   - **mAP (Mean Average Precision)**: `> 0.82 - 0.88` across multi-hop biomedical subgraph retrieval.
+   - **Precision@k**: `> 0.88 - 0.90` ($k=10$).
+   - **Recall@k**: `> 0.80 - 0.85` ($k=10$).
+4. **Agent Decision Quality Metric**:
+   - **`agent.correct_algorithm_choice`**: `> 0.95` accuracy on golden evaluation benchmarks assessing whether Orchestrators/Routers/Workers select the optimal graph traversal algorithm for clinical intent.
+5. **Security Hardening (DOC-02)**:
+   - Zero Ambient Authority (ZAA): Tokens minted just-in-time and scoped strictly.
+   - OAuth2 / OIDC authentication with short-lived JWT session tokens for Web App users.
+   - Containers run non-root (`USER 10001:10001`) with read-only root filesystems.
+6. **State & Memory Bank (DOC-08, DOC-09)**:
+   - Spanner-backed ACID session persistence (`chat_sessions`, `chat_messages`).
+   - Managed Memory Bank (`PAT-MEM-BANK`) with automated entity/hypothesis consolidation and progressive semantic recall.
+
 
 
