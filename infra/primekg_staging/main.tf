@@ -5,56 +5,78 @@ terraform {
       source  = "hashicorp/google"
       version = "~> 5.0"
     }
+    random = {
+      source  = "hashicorp/random"
+      version = "~> 3.5"
+    }
   }
 }
 
-# GCS Bucket for Staging raw PrimeKG releases and checkpoints
-resource "google_storage_bucket" "primekg_staging" {
-  name                        = "graphagents-primekg-staging-${var.project_id}-${var.environment}"
-  location                    = var.region
+# Unique suffix for landing zone bucket naming
+resource "random_id" "bucket_suffix" {
+  byte_length = 4
+}
+
+locals {
+  bucket_name = var.gcs_primekg_bucket != "" ? var.gcs_primekg_bucket : "cancer-co-scientist-primekg-data-landingzone-${random_id.bucket_suffix.hex}"
+}
+
+# 1. Multi-regional GCS Bucket located in the US for PrimeKG landing zone
+resource "google_storage_bucket" "primekg_landingzone" {
+  name                        = local.bucket_name
+  project                     = var.project_id
+  location                    = "US" # Multi-regional US as specified
   storage_class               = "STANDARD"
   uniform_bucket_level_access = true
+
+  versioning {
+    enabled = true
+  }
 
   lifecycle_rule {
     action {
       type = "Delete"
     }
     condition {
-      age = 30
+      age        = 90
+      with_state = "ARCHIVED"
     }
   }
 
   labels = {
     environment = var.environment
-    pipeline    = "primekg-staging"
+    pipeline    = "primekg-acquisition"
     domain      = "precision-oncology"
+    governance  = "zaa-compliant"
   }
 }
 
-# Service Account for GCE Curl Pipeline adhering to Zero Ambient Authority (DOC-02)
-resource "google_service_account" "curl_pipeline_sa" {
-  account_id   = "primekg-curl-pipeline-sa"
-  display_name = "PrimeKG Curl Pipeline Service Account"
-  description  = "Scoped SA for downloading and staging PrimeKG datasets into GCS"
+# 2. Service Account for GCE Runner adhering to Zero Ambient Authority (DOC-02)
+resource "google_service_account" "primekg_staging_runner" {
+  project      = var.project_id
+  account_id   = "primekg-staging-runner-sa"
+  display_name = "PrimeKG Staging Runner Service Account"
+  description  = "ZAA-scoped service account with write-only access to PrimeKG landing zone bucket"
 }
 
-# Grant write access only to the staging bucket
+# Grant write access strictly to the landing zone bucket (Least Privilege)
 resource "google_storage_bucket_iam_member" "staging_writer" {
-  bucket = google_storage_bucket.primekg_staging.name
+  bucket = google_storage_bucket.primekg_landingzone.name
   role   = "roles/storage.objectAdmin"
-  member = "serviceAccount:${google_service_account.curl_pipeline_sa.email}"
+  member = "serviceAccount:${google_service_account.primekg_staging_runner.email}"
 }
 
-# GCE Instance for High-Throughput curl downloads from Harvard Dataverse
-resource "google_compute_instance" "curl_pipeline_runner" {
-  name         = "primekg-staging-curl-runner-${var.environment}"
+# 3. Lightweight Compute Engine Instance with fast uplink for data acquisition
+resource "google_compute_instance" "staging_runner" {
+  project      = var.project_id
+  name         = "primekg-staging-runner-${var.environment}"
   machine_type = var.machine_type
   zone         = var.zone
 
   boot_disk {
     initialize_params {
       image = "debian-cloud/debian-12"
-      size  = 100 # GB SSD for downloading and staging multi-GB PrimeKG files
+      size  = 100 # GB SSD for downloading, extracting, and hashing PrimeKG dumps
       type  = "pd-ssd"
     }
   }
@@ -62,21 +84,33 @@ resource "google_compute_instance" "curl_pipeline_runner" {
   network_interface {
     network = "default"
     access_config {
-      // Ephemeral public IP for external curl access
+      // Ephemeral public IP for fast uplink to Harvard Dataverse
     }
   }
 
   service_account {
-    email  = google_service_account.curl_pipeline_sa.email
+    email  = google_service_account.primekg_staging_runner.email
     scopes = ["https://www.googleapis.com/auth/cloud-platform"]
   }
 
   metadata_startup_script = <<-EOT
     #!/usr/bin/env bash
     set -euo pipefail
-    apt-get update && apt-get install -y curl pigz jq
-    echo "PrimeKG Curl Pipeline VM Ready."
+    
+    # Install dependencies
+    apt-get update && apt-get install -y curl jq pigz coreutils
+    
+    # Create working directory
+    mkdir -p /opt/primekg_pipeline
+    cd /opt/primekg_pipeline
+
+    echo "PrimeKG Staging Runner initialized at $(date -u)" > /var/log/primekg_runner_status.log
   EOT
+
+  metadata = {
+    enable-oslogin = "TRUE"
+    bucket_target  = google_storage_bucket.primekg_landingzone.name
+  }
 
   labels = {
     environment = var.environment
