@@ -79,3 +79,28 @@ resource "google_bigquery_table" "node_embeddings" {
 
   deletion_protection = false
 }
+
+# BigQuery Table: Memory Embeddings (Vector Search & Semantic Recall for Memory Bank - DOC-08, DOC-09)
+resource "google_bigquery_table" "memory_embeddings" {
+  project    = var.project_id
+  dataset_id = google_bigquery_dataset.primekg_analytics.dataset_id
+  table_id   = "memory_embeddings"
+
+  time_partitioning {
+    type  = "DAY"
+    field = "created_at"
+  }
+
+  schema = <<-EOF
+  [
+    {"name": "entity_id", "type": "STRING", "mode": "NULLABLE", "description": "Associated entity identifier if applicable"},
+    {"name": "session_id", "type": "STRING", "mode": "REQUIRED", "description": "Chat session ID for context isolation"},
+    {"name": "text_chunk", "type": "STRING", "mode": "REQUIRED", "description": "Text chunk or fact representation for semantic recall"},
+    {"name": "embedding", "type": "FLOAT64", "mode": "REPEATED", "description": "Vector embedding coordinates (768-dim text-embedding-004)"},
+    {"name": "created_at", "type": "TIMESTAMP", "mode": "REQUIRED", "description": "Creation timestamp"}
+  ]
+  EOF
+
+  deletion_protection = false
+}
+

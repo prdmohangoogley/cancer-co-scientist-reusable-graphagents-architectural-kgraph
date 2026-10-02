@@ -15,9 +15,11 @@ from typing import Any, Optional
 from .traversal import GraphEdge, GraphNode, SubgraphResult, TraversalConfig
 
 try:
+    from tools.algorithms import AlgorithmResult, GraphAlgorithmEngine
     from tools.gql_tools import SpannerGraphTool
     from tools.sql_tools import BigQueryAnalyticsTool
 except ImportError:
+    from ..tools.algorithms import AlgorithmResult, GraphAlgorithmEngine
     from ..tools.gql_tools import SpannerGraphTool
     from ..tools.sql_tools import BigQueryAnalyticsTool
 
@@ -50,6 +52,10 @@ class PrimeKGWorkerAgent:
         self.sql_tool = BigQueryAnalyticsTool(
             project_id=project_id,
             dataset_id=bq_dataset_id,
+            use_mock=use_mock,
+        )
+        self.algo_engine = GraphAlgorithmEngine(
+            gql_tool=self.gql_tool,
             use_mock=use_mock,
         )
 
@@ -111,3 +117,178 @@ class PrimeKGWorkerAgent:
             hops_traversed=1,
             summary=f"Target validation for {gene_symbol}: {len(enriched_nodes)} connected entities and {len(neighborhood.edges)} interactions discovered.",
         )
+
+    async def run_discrete_algorithm(
+        self,
+        algorithm_name: str,
+        source_entity: str,
+        target_entity: Optional[str] = None,
+        **kwargs: Any,
+    ) -> AlgorithmResult:
+        """Execute a discrete graph algorithm from the 15-algorithm matrix.
+
+        Supported algorithms:
+        - DFS/BFS ('dfs', 'bfs', 'dfs_bfs_traversal')
+        - Dijkstra/A* ('dijkstra', 'astar', 'shortest_path')
+        - D* Lite ('d_star_lite', 'dstar', 'replanning')
+        - Connected Components ('connected_components', 'wcc', 'scc')
+        - Topological Sort ('topological_sort', 'signaling_cascade')
+        - Transitive Closure ('transitive_closure', 'reachability')
+        - Community Detection ('community_detection', 'label_propagation')
+        - Ego Network ('ego_network', 'ego_network_inspection')
+        """
+        key = algorithm_name.strip().lower().replace("-", "_").replace(" ", "_")
+
+        if key in ("bfs", "dfs", "dfs_bfs", "dfs_bfs_traversal"):
+            mode = "DFS" if "dfs" in key and "bfs" not in key else kwargs.pop("mode", "BFS")
+            return await self.algo_engine.dfs_bfs_traversal(
+                source_entity=source_entity,
+                mode=mode,
+                **kwargs,
+            )
+        elif key in ("dijkstra", "astar", "a_star", "shortest_path", "shortest_path_dijkstra_astar"):
+            dst = target_entity or kwargs.pop("target_entity", "Neoplasm")
+            return await self.algo_engine.shortest_path_dijkstra_astar(
+                source_entity=source_entity,
+                target_entity=dst,
+                **kwargs,
+            )
+        elif key in ("d_star_lite", "dstar", "d_star", "d_star_lite_replanning", "replanning"):
+            dst = target_entity or kwargs.pop("target_entity", "Target")
+            initial_path = kwargs.pop("initial_path", [source_entity, dst])
+            mutated_edges = kwargs.pop("mutated_edges", {})
+            return self.algo_engine.d_star_lite_replanning(
+                source_entity=source_entity,
+                target_entity=dst,
+                initial_path=initial_path,
+                mutated_edges=mutated_edges,
+                **kwargs,
+            )
+        elif key in ("connected_components", "wcc", "scc", "connectedcomponents_wcc_scc"):
+            return await self.algo_engine.connected_components(**kwargs)
+        elif key in ("topological_sort", "topological_sort_cascade", "topological", "signaling_cascade"):
+            return self.algo_engine.topological_sort_cascade(**kwargs)
+        elif key in ("transitive_closure", "transitive_closure_reachability", "reachability"):
+            return self.algo_engine.transitive_closure_reachability(
+                source_gene=source_entity,
+                **kwargs,
+            )
+        elif key in ("community_detection", "community_detection_modules", "label_propagation"):
+            return self.algo_engine.community_detection_modules(**kwargs)
+        elif key in ("ego_network", "ego_network_inspection", "ego"):
+            return await self.algo_engine.ego_network_inspection(
+                focal_node=source_entity,
+                **kwargs,
+            )
+        else:
+            raise ValueError(
+                f"Unknown discrete algorithm: '{algorithm_name}'. "
+                "Supported: dfs_bfs_traversal, shortest_path_dijkstra_astar, d_star_lite_replanning, "
+                "connected_components, topological_sort_cascade, transitive_closure_reachability, "
+                "community_detection_modules, ego_network_inspection."
+            )
+
+    async def run_structural_analytics(
+        self,
+        algorithm_name: str,
+        target_entity: str,
+        **kwargs: Any,
+    ) -> AlgorithmResult:
+        """Execute structural or node-level analytics from the 15-algorithm matrix.
+
+        Supported algorithms:
+        - Node Centrality / PageRank / Betweenness ('hub_proteins', 'identify_hub_proteins', 'pagerank', 'betweenness')
+        - Subgraph Structural Statistics ('subgraph_statistics', 'subgraph_structural_statistics', 'density', 'bridges')
+        """
+        key = algorithm_name.strip().lower().replace("-", "_").replace(" ", "_")
+
+        if key in ("identify_hub_proteins", "hub_proteins", "node_centrality", "pagerank", "betweenness"):
+            return await self.algo_engine.identify_hub_proteins(
+                gene_symbol=target_entity,
+                **kwargs,
+            )
+        elif key in ("subgraph_structural_statistics", "subgraph_statistics", "density", "bridges", "cut_vertices"):
+            return self.algo_engine.subgraph_structural_statistics(**kwargs)
+        else:
+            raise ValueError(
+                f"Unknown structural analytics algorithm: '{algorithm_name}'. "
+                "Supported: identify_hub_proteins, subgraph_structural_statistics."
+            )
+
+    async def run_continuous_simulation(
+        self,
+        algorithm_name: str,
+        **kwargs: Any,
+    ) -> AlgorithmResult:
+        """Execute continuous simulation delegation (GKE delegated with heuristic fallback).
+
+        Supported algorithms:
+        - AlphaFold RRT* Docking ('alphafold', 'alphafold_docking', 'rrt_star', 'generate_alphafold_docking_job')
+        - PhysiCell Swarming ('physicell', 'physicell_swarming', 'boids', 'generate_physicell_swarming_job')
+        """
+        key = algorithm_name.strip().lower().replace("-", "_").replace(" ", "_")
+
+        if key in ("alphafold", "alphafold_docking", "rrt", "rrt_star", "generate_alphafold_docking_job", "ompl"):
+            protein_id = kwargs.pop("protein_id", kwargs.pop("target_entity", "P00533"))
+            ligand_smiles = kwargs.pop("ligand_smiles", "COCCOC1=C")
+            return self.algo_engine.generate_alphafold_docking_job(
+                protein_id=protein_id,
+                ligand_smiles=ligand_smiles,
+                **kwargs,
+            )
+        elif key in (
+            "physicell",
+            "physicell_swarming",
+            "generate_physicell_swarming_job",
+            "generate_physicell_simulation_job",
+            "boids",
+            "swarming",
+        ):
+            tumor_type = kwargs.pop("tumor_type", kwargs.pop("target_entity", "Glioblastoma"))
+            return self.algo_engine.generate_physicell_swarming_job(
+                tumor_type=tumor_type,
+                **kwargs,
+            )
+        else:
+            raise ValueError(
+                f"Unknown continuous simulation algorithm: '{algorithm_name}'. "
+                "Supported: generate_alphafold_docking_job, generate_physicell_swarming_job."
+            )
+
+    async def run_temporal_tracking(
+        self,
+        algorithm_name: str,
+        **kwargs: Any,
+    ) -> AlgorithmResult:
+        """Execute temporal tracking, metric profiling, or visualization AST generation.
+
+        Supported algorithms:
+        - Temporal Edge Filtering ('temporal_edge_filtering', 'edge_filtering', 'temporal_tracking')
+        - Temporal Metric Profiling ('temporal_metric_profiling', 'algebraic_connectivity', 'lambda_2')
+        - Visualization AST Generator ('generate_visualization_ast', 'visualization_ast', 'a2ui_ast')
+        """
+        key = algorithm_name.strip().lower().replace("-", "_").replace(" ", "_")
+
+        if key in ("temporal_edge_filtering", "edge_filtering", "temporal_tracking", "temporal_edges"):
+            source_entity = kwargs.pop("source_entity", kwargs.pop("target_entity", "EGFR"))
+            target_timestamp = kwargs.pop("target_timestamp", "2025-06-01")
+            return self.algo_engine.temporal_edge_filtering(
+                source_entity=source_entity,
+                target_timestamp=target_timestamp,
+                **kwargs,
+            )
+        elif key in ("temporal_metric_profiling", "algebraic_connectivity", "lambda_2", "spectral"):
+            return self.algo_engine.temporal_metric_profiling(**kwargs)
+        elif key in ("generate_visualization_ast", "visualization_ast", "visualization", "a2ui_ast"):
+            nodes = kwargs.pop("nodes", ["EGFR", "KRAS", "BRAF"])
+            edges = kwargs.pop("edges", [("EGFR", "KRAS"), ("KRAS", "BRAF")])
+            return self.algo_engine.generate_visualization_ast(
+                nodes=nodes,
+                edges=edges,
+                **kwargs,
+            )
+        else:
+            raise ValueError(
+                f"Unknown temporal tracking algorithm: '{algorithm_name}'. "
+                "Supported: temporal_edge_filtering, temporal_metric_profiling, generate_visualization_ast."
+            )

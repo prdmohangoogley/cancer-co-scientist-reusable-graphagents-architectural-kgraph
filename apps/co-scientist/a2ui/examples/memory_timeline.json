@@ -1,0 +1,102 @@
+{
+  "type": "A2UI_SURFACE",
+  "surface_id": "surf_memory_timeline_001",
+  "timestamp": "2026-10-01T12:30:00Z",
+  "version": "1.1",
+  "intent": "LONG_TERM_MEMORY_RECALL",
+  "guidelines_cited": ["DOC-08", "DOC-03", "DOC-09"],
+  "components": [
+    {
+      "component": "InsightCard",
+      "id": "card_memory_overview",
+      "props": {
+        "title": "Longitudinal Patient Oncology State (PAT-MEM-BANK)",
+        "subtitle": "Spanner ACID Session Persistence • Progressive Recall Active",
+        "severity": "info",
+        "summary": "Consolidated 3 conversation turns for Patient PAT-9821. Tracked primary resistance evolution from 1st-generation TKI failure to 3rd-generation Osimertinib intervention and prospective bypass surveillance.",
+        "confidence_score": 0.97,
+        "tags": ["PAT-MEM-BANK", "EGFR", "T790M", "Osimertinib", "MET"]
+      }
+    },
+    {
+      "component": "MemoryTimeline",
+      "id": "timeline_egfr_evolution",
+      "props": {
+        "title": "Clinical Entity & Hypothesis Evolution Across Turns",
+        "session_id": "sess_nsclc_resistance_09",
+        "total_turns": 3,
+        "active_biomarkers": [
+          "EGFR exon 19 del",
+          "EGFR T790M",
+          "MET amplification",
+          "TP53 R273H"
+        ],
+        "confirmed_hypotheses_count": 2,
+        "turns": [
+          {
+            "turn_number": 1,
+            "timestamp": "2026-10-01T12:05:00Z",
+            "user_query": "Evaluate primary resistance drivers in stage IV lung adenocarcinoma with initial response to Gefitinib",
+            "extracted_entities": [
+              { "name": "EGFR", "type": "Gene", "confidence": 0.99 },
+              { "name": "Gefitinib", "type": "Drug", "confidence": 0.98 },
+              { "name": "Lung Adenocarcinoma", "type": "Disease", "confidence": 0.97 }
+            ],
+            "hypotheses": [
+              {
+                "id": "hyp_01",
+                "statement": "Disease progression mediated by secondary gatekeeper mutation T790M",
+                "status": "formulated",
+                "confidence": 0.88
+              }
+            ],
+            "summary": "Identified primary 1st-generation EGFR TKI treatment history and flagged potential gatekeeper resistance mutation emergence."
+          },
+          {
+            "turn_number": 2,
+            "timestamp": "2026-10-01T12:15:00Z",
+            "user_query": "Confirm presence of T790M mutation and identify next-line therapeutic strategy",
+            "extracted_entities": [
+              { "name": "EGFR T790M", "type": "Variant", "confidence": 0.99 },
+              { "name": "Osimertinib", "type": "Drug", "confidence": 0.98 }
+            ],
+            "hypotheses": [
+              {
+                "id": "hyp_01",
+                "statement": "Disease progression mediated by secondary gatekeeper mutation T790M",
+                "status": "confirmed",
+                "confidence": 0.97
+              },
+              {
+                "id": "hyp_02",
+                "statement": "Osimertinib 3rd-generation covalent binding restores kinase inhibition despite T790M steric hindrance",
+                "status": "confirmed",
+                "confidence": 0.96
+              }
+            ],
+            "summary": "Biopsy and cfDNA NGS confirmed EGFR T790M. Third-generation irreversible TKI Osimertinib indicated as preferred second-line therapy."
+          },
+          {
+            "turn_number": 3,
+            "timestamp": "2026-10-01T12:28:00Z",
+            "user_query": "Investigate potential tertiary resistance mechanisms (e.g. C797S or MET bypass) after prolonged Osimertinib",
+            "extracted_entities": [
+              { "name": "EGFR C797S", "type": "Variant", "confidence": 0.95 },
+              { "name": "MET", "type": "Gene", "confidence": 0.93 },
+              { "name": "Savolitinib", "type": "Drug", "confidence": 0.89 }
+            ],
+            "hypotheses": [
+              {
+                "id": "hyp_03",
+                "statement": "Tertiary resistance may emerge via MET amplification bypass pathway, amenable to Osimertinib + MET inhibitor combination",
+                "status": "testing",
+                "confidence": 0.82
+              }
+            ],
+            "summary": "Formulated prospective hypothesis for MET amplification bypass signaling; recommended dual-target surveillance."
+          }
+        ]
+      }
+    }
+  ]
+}

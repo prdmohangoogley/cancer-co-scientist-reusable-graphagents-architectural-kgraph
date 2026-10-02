@@ -56,6 +56,26 @@ resource "google_cloud_run_v2_service" "orchestrator_service" {
         name  = "ARCH_GUIDELINES_MCP_URL"
         value = "https://gea-guidelines-mcp-${var.project_id}.run.app/sse"
       }
+      env {
+        name  = "JWT_SECRET_KEY"
+        value = var.jwt_secret_key
+      }
+      env {
+        name  = "OIDC_ISSUER"
+        value = var.oidc_issuer
+      }
+      env {
+        name  = "SPANNER_DATABASE"
+        value = var.spanner_database
+      }
+      env {
+        name  = "BQ_DATASET"
+        value = var.bq_dataset
+      }
+      env {
+        name  = "ENABLE_MEMORY_BANK"
+        value = var.enable_memory_bank
+      }
 
       startup_probe {
         http_get {
@@ -127,3 +147,58 @@ resource "google_cloud_run_v2_service_iam_member" "ui_public_access" {
   role     = "roles/run.invoker"
   member   = "allUsers"
 }
+
+# Cloud Armor Security Policy for API Protection & Rate Limiting (DOC-02: ZAA)
+resource "google_compute_security_policy" "cloud_armor_policy" {
+  name        = "cancer-co-scientist-armor-${var.environment}"
+  project     = var.project_id
+  description = "Enterprise Cloud Armor security policy enforcing rate limiting and WAF (DOC-02)"
+
+  # Default rule: allow traffic
+  rule {
+    action   = "allow"
+    priority = "2147483647"
+    match {
+      versioned_expr = "SRC_IPS_V1"
+      config {
+        src_ip_ranges = ["*"]
+      }
+    }
+    description = "Default allow rule"
+  }
+
+  # Rate limiting rule: 60 requests per minute per IP
+  rule {
+    action   = "throttle"
+    priority = "1000"
+    match {
+      versioned_expr = "SRC_IPS_V1"
+      config {
+        src_ip_ranges = ["*"]
+      }
+    }
+    rate_limit_options {
+      conform_action = "allow"
+      exceed_action  = "deny(429)"
+      enforce_on_key = "IP"
+      rate_limit_threshold {
+        count        = 60
+        interval_sec = 60
+      }
+    }
+    description = "Rate limit at 60 requests per minute per IP"
+  }
+
+  # OWASP Top 10 ModSecurity Preconfigured Core Rule Set (SQLi, XSS, Scanner detection)
+  rule {
+    action   = "deny(403)"
+    priority = "2000"
+    match {
+      expr {
+        expression = "evaluatePreconfiguredExpr('sqli-v33-stable') || evaluatePreconfiguredExpr('xss-v33-stable') || evaluatePreconfiguredExpr('scannerdetection-v33-stable')"
+      }
+    }
+    description = "OWASP CRS protection against SQLi, XSS, and vulnerability scanners"
+  }
+}
+

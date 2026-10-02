@@ -146,7 +146,7 @@ def test_subgraph_structural_statistics():
 # =============================================================================
 
 def test_continuous_alphafold_docking_dispatch():
-    """Verify continuous motion planning parameter generator for AlphaFold."""
+    """Verify continuous motion planning parameter generator for AlphaFold with fallback."""
     engine = GraphAlgorithmEngine(use_mock=True)
     result = engine.generate_alphafold_docking_job(
         protein_id="P00533",
@@ -157,10 +157,13 @@ def test_continuous_alphafold_docking_dispatch():
     assert result.simulation_payload is not None
     assert result.simulation_payload["engine"] == "OMPL-RRT*"
     assert result.simulation_payload["sampling_budget"] == 500
+    assert result.metrics["fallback_applied"] is True
+    assert "heuristic_binding_affinity_kcal_mol" in result.metrics
+    assert "latency_ms" in result.metrics
 
 
 def test_physicell_swarming_simulation():
-    """Verify PhysiCell agent-based microenvironment simulation parameter generation."""
+    """Verify PhysiCell agent-based microenvironment simulation parameter generation with fallback."""
     engine = GraphAlgorithmEngine(use_mock=True)
     result = engine.generate_physicell_simulation_job(
         tumor_type="Glioblastoma",
@@ -169,6 +172,16 @@ def test_physicell_swarming_simulation():
     assert result.workflow_type == "Continuous"
     assert result.simulation_payload["engine"] == "PhysiCell-AgentBased"
     assert result.simulation_payload["initial_cell_count"] == 10000
+    assert result.metrics["fallback_applied"] is True
+    assert "heuristic_tumor_density" in result.metrics
+    assert "latency_ms" in result.metrics
+
+    # Also test swarming alias
+    swarming_res = engine.generate_physicell_swarming_job(
+        tumor_type="Melanoma",
+        num_cells=2000,
+    )
+    assert swarming_res.metrics["fallback_applied"] is True
 
 
 # =============================================================================

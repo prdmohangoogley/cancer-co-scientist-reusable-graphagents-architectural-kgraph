@@ -12,3 +12,9 @@ output "orchestrator_service_account" {
   description = "Service account running the orchestrator"
   value       = google_service_account.orchestrator_sa.email
 }
+
+output "cloud_armor_security_policy_id" {
+  description = "The ID of the Cloud Armor security policy"
+  value       = google_compute_security_policy.cloud_armor_policy.id
+}
+

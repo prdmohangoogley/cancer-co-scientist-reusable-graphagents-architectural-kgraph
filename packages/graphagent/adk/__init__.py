@@ -2,6 +2,11 @@
 
 from __future__ import annotations
 
+from .algorithm_router import (
+    AlgorithmRoutingDecision,
+    AlgorithmSelectionRouter,
+    GraphAlgorithmCategory,
+)
 from .traversal import GraphEdge, GraphNode, SubgraphResult, TraversalConfig
 
 
@@ -18,4 +23,7 @@ __all__ = [
     "SubgraphResult",
     "GraphEdge",
     "GraphNode",
+    "AlgorithmSelectionRouter",
+    "AlgorithmRoutingDecision",
+    "GraphAlgorithmCategory",
 ]

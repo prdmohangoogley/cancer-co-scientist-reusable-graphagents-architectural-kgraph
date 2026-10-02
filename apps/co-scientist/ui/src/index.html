@@ -3,14 +3,15 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Cancer Co-Scientist — Precision Oncology Intelligence</title>
+  <title>Cancer Co-Scientist — Precision Oncology Multi-Agent Intelligence</title>
   <link rel="stylesheet" href="./styles.css" />
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Google+Sans:wght@400;500;700&family=Roboto+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Google+Sans:wght@400;500;600;700&family=Roboto+Mono:wght@400;500;600&display=swap" rel="stylesheet">
 </head>
 <body>
   <div class="app-layout">
+    <!-- Top Navigation Bar -->
     <header class="app-header">
       <div class="brand">
         <span class="brand-icon">🩺</span>
@@ -19,40 +20,239 @@
           <span class="brand-badge">A2UI Declarative Interface &bull; PrimeKG Multi-Agent</span>
         </div>
       </div>
-      <div class="header-status">
-        <span class="status-indicator online"></span>
-        <span class="status-text">Guidelines FastMCP Active (DOC-03)</span>
+
+      <!-- Telemetry HUD Badge -->
+      <div class="telemetry-hud" id="telemetry-hud" title="Live System Telemetry">
+        <div class="hud-item" title="Spanner Graph & BigQuery Query Latencies">
+          <span class="hud-label">LATENCY</span>
+          <span class="hud-value" id="hud-latency">p50: 112ms &bull; p95: 485ms</span>
+        </div>
+        <div class="hud-divider"></div>
+        <div class="hud-item" title="Tokens Consumed & Context Cache Rate">
+          <span class="hud-label">TOKENS</span>
+          <span class="hud-value" id="hud-tokens">1,420 p &bull; 380 c &bull; 850 cached</span>
+        </div>
+        <div class="hud-divider"></div>
+        <div class="hud-badges">
+          <span class="badge-hud zaa" title="Zero Ambient Authority">DOC-02 ZAA</span>
+          <span class="badge-hud a2ui" title="Declarative Protocol Stack">DOC-03 A2UI</span>
+        </div>
+      </div>
+
+      <!-- User Auth Section -->
+      <div class="user-auth-section" id="user-auth-section">
+        <div class="user-profile" id="user-profile" style="display: none;">
+          <span class="status-indicator online" title="Authenticated Session"></span>
+          <span class="user-name" id="user-display-name">Dr. Elena Rostova</span>
+          <span class="role-badge" id="user-role-badge">Clinician</span>
+          <button type="button" class="btn-ghost btn-sm" id="btn-logout" title="Sign out of session">Logout</button>
+        </div>
+        <div class="user-unauthenticated" id="user-unauthenticated">
+          <button type="button" class="btn-primary btn-sm" id="btn-open-login">Sign In</button>
+        </div>
       </div>
     </header>
 
-    <main class="main-container">
-      <section class="inquiry-bar">
-        <form id="inquiry-form" class="inquiry-form">
-          <input
-            id="query-input"
-            type="text"
-            placeholder="Ask oncology question (e.g. 'What are targetable kinase pathways in EGFR-mutant lung cancer?')"
-            autocomplete="off"
-            required
-          />
-          <button type="submit" id="submit-btn" class="btn-primary">
-            <span>Analyze Graph</span>
+    <!-- Main 3-Column Workspace -->
+    <div class="app-body">
+      <!-- Left Sidebar: Clinical Sessions (chat_sessions) -->
+      <aside class="sidebar-left" id="sessions-sidebar">
+        <div class="sidebar-header">
+          <div class="sidebar-title-row">
+            <span class="sidebar-title">Clinical Sessions</span>
+            <span class="sidebar-count" id="session-count">0</span>
+          </div>
+          <button type="button" class="btn-new-session" id="btn-new-session" title="Start new clinical inquiry session">
+            <span class="icon">+</span> New Session
           </button>
-        </form>
-      </section>
+        </div>
 
-      <!-- A2UI Declarative Rendering Surface -->
-      <section id="a2ui-surface" class="a2ui-surface">
-        <div class="placeholder-state">
-          <p>Enter a query above or click a quick prompt to render real-time declarative A2UI components.</p>
-          <div class="quick-prompts">
-            <button class="chip-prompt" data-query="What drugs target EGFR pathways in non-small cell lung carcinoma?">EGFR Lung Cancer Therapeutics</button>
-            <button class="chip-prompt" data-query="Investigate TP53 mutations and synthetic lethality pathways in ovarian cancer">TP53 Ovarian Synthetic Lethality</button>
-            <button class="chip-prompt" data-query="Identify candidate repurposing drugs for KRAS-mutant pancreatic adenocarcinoma">KRAS Pancreatic Repurposing</button>
+        <div class="sidebar-search">
+          <input type="text" id="session-search" placeholder="Search sessions..." autocomplete="off" />
+        </div>
+
+        <div class="session-list" id="session-list">
+          <!-- Populated dynamically via main.ts -->
+        </div>
+
+        <div class="sidebar-footer">
+          <div class="footer-db-status">
+            <span class="status-dot"></span>
+            <span>Spanner: <code>chat_sessions</code></span>
           </div>
         </div>
-      </section>
-    </main>
+      </aside>
+
+      <!-- Center Area: Chat Timeline & A2UI Declarative Surface -->
+      <main class="main-workspace" id="main-workspace">
+        <div class="workspace-scroll-area" id="workspace-scroll-area">
+          <!-- Chat Conversation Timeline -->
+          <section class="chat-timeline" id="chat-timeline">
+            <div class="timeline-empty-state" id="timeline-empty-state">
+              <div class="empty-icon">🧬</div>
+              <h2>Precision Oncology Co-Scientist</h2>
+              <p>Execute multi-hop PrimeKG traversals, simulate ligand docking trajectories, analyze synthetic lethality pathways, and render certified declarative A2UI surfaces.</p>
+            </div>
+          </section>
+
+          <!-- Active A2UI Declarative Surface Container -->
+          <section class="a2ui-surface" id="a2ui-surface">
+            <!-- Rendered A2UI components appended here -->
+          </section>
+        </div>
+
+        <!-- Inquiry Bar & Quick Prompts Container -->
+        <section class="inquiry-container">
+          <div class="quick-prompts-bar">
+            <span class="quick-prompts-label">Archetypes:</span>
+            <div class="quick-prompts-chips">
+              <button class="chip-prompt" data-query="What drugs target EGFR pathways in non-small cell lung carcinoma?">EGFR NSCLC Therapeutics</button>
+              <button class="chip-prompt" data-query="Investigate TP53 mutations and synthetic lethality pathways in ovarian cancer">TP53 Ovarian Synthetic Lethality</button>
+              <button class="chip-prompt" data-query="Simulate AlphaFold docking and molecular dynamics for Osimertinib against EGFR T790M">Osimertinib T790M Docking</button>
+              <button class="chip-prompt" data-query="Review PAT-MEM-BANK longitudinal clinical entity evolution for patient resistance">Memory Timeline Review</button>
+            </div>
+          </div>
+
+          <form id="inquiry-form" class="inquiry-form">
+            <div class="input-wrapper">
+              <input
+                id="query-input"
+                type="text"
+                placeholder="Ask clinical oncology inquiry (e.g. 'Identify candidate repurposing drugs for KRAS-mutant pancreatic cancer')..."
+                autocomplete="off"
+                required
+              />
+              <button type="submit" id="submit-btn" class="btn-primary">
+                <span>Analyze Graph</span>
+              </button>
+            </div>
+          </form>
+        </section>
+      </main>
+
+      <!-- Right Drawer / Collapsible Sidebar: Memory Bank Inspector (PAT-MEM-BANK) -->
+      <aside class="drawer-right" id="memory-bank-drawer">
+        <div class="drawer-header">
+          <div class="drawer-title-group">
+            <span class="drawer-icon">🧠</span>
+            <div>
+              <h3>Memory Bank Inspector</h3>
+              <span class="drawer-subtitle">PAT-MEM-BANK &bull; DOC-08</span>
+            </div>
+          </div>
+          <button type="button" class="drawer-toggle-btn" id="drawer-toggle-btn" title="Toggle Memory Bank Drawer">✕</button>
+        </div>
+
+        <div class="drawer-content" id="drawer-content">
+          <!-- Section 1: Active Genomic Variants -->
+          <div class="memory-section">
+            <div class="section-title-row">
+              <span class="section-heading">Active Genomic Variants</span>
+              <span class="badge-count" id="count-variants">0</span>
+            </div>
+            <div class="memory-item-list" id="active-variants-list">
+              <div class="memory-empty">No active genomic variants consolidated yet.</div>
+            </div>
+          </div>
+
+          <!-- Section 2: Target Biomarkers -->
+          <div class="memory-section">
+            <div class="section-title-row">
+              <span class="section-heading">Target Biomarkers</span>
+              <span class="badge-count" id="count-biomarkers">0</span>
+            </div>
+            <div class="memory-item-list" id="active-biomarkers-list">
+              <div class="memory-empty">No target biomarkers active in session.</div>
+            </div>
+          </div>
+
+          <!-- Section 3: Confirmed Hypotheses -->
+          <div class="memory-section">
+            <div class="section-title-row">
+              <span class="section-heading">Confirmed Hypotheses</span>
+              <span class="badge-count" id="count-hypotheses">0</span>
+            </div>
+            <div class="memory-item-list" id="confirmed-hypotheses-list">
+              <div class="memory-empty">No confirmed clinical hypotheses recorded.</div>
+            </div>
+          </div>
+
+          <!-- Section 4: Progressive Semantic Recall Metrics -->
+          <div class="memory-section recall-metrics-card">
+            <span class="section-heading">Progressive Semantic Recall</span>
+            <div class="metric-row">
+              <span class="metric-key">Context Cache Hit Rate:</span>
+              <span class="metric-val highlight" id="metric-cache-hit">74.2%</span>
+            </div>
+            <div class="metric-row">
+              <span class="metric-key">Vector Store:</span>
+              <span class="metric-val">BigQuery <code>memory_embeddings</code></span>
+            </div>
+            <div class="metric-row">
+              <span class="metric-key">ACID Entity Store:</span>
+              <span class="metric-val">Spanner <code>PAT-MEM-BANK</code></span>
+            </div>
+            <div class="metric-row">
+              <span class="metric-key">Budgeting Ratio:</span>
+              <span class="metric-val">20% Sys / 25% Mem / 35% Turns / 20% Tools</span>
+            </div>
+          </div>
+        </div>
+      </aside>
+    </div>
+
+    <!-- Floating Toggle for Closed Memory Drawer -->
+    <button type="button" class="drawer-floating-btn" id="drawer-floating-btn" title="Open Memory Bank Inspector" style="display: none;">
+      🧠 Memory Bank
+    </button>
+
+    <!-- Modal: Login & Registration Modal -->
+    <div class="modal-backdrop" id="auth-modal" style="display: none;">
+      <div class="modal-card">
+        <div class="modal-header">
+          <div class="modal-title-group">
+            <span class="modal-icon">🔒</span>
+            <div>
+              <h2>Clinician Authentication</h2>
+              <span class="modal-subtitle">Google Cloud Identity &bull; Zero Ambient Authority (DOC-02)</span>
+            </div>
+          </div>
+          <button type="button" class="modal-close-btn" id="auth-modal-close" title="Close authentication modal">&times;</button>
+        </div>
+
+        <div class="modal-tabs">
+          <button type="button" class="modal-tab active" id="tab-login" data-tab="login">Sign In</button>
+          <button type="button" class="modal-tab" id="tab-register" data-tab="register">Register Access</button>
+        </div>
+
+        <form id="auth-form" class="modal-form">
+          <div class="form-group">
+            <label for="auth-email">Institutional Email / Identity</label>
+            <input type="email" id="auth-email" placeholder="clinician@hospital.org" value="clinician@cancercenter.org" required />
+          </div>
+          <div class="form-group">
+            <label for="auth-password">Password / Token Key</label>
+            <input type="password" id="auth-password" placeholder="••••••••••••" value="clinician123!" required />
+          </div>
+          <div class="form-group" id="group-role">
+            <label for="auth-role">Clinical Role</label>
+            <select id="auth-role">
+              <option value="Clinician">Attending Oncologist (Clinician)</option>
+              <option value="Bioinformatician">Bioinformatics Specialist</option>
+              <option value="Pharmacologist">Clinical Pharmacologist</option>
+              <option value="Researcher">Translational Cancer Researcher</option>
+            </select>
+          </div>
+
+          <div class="form-actions">
+            <button type="submit" class="btn-primary btn-block" id="auth-submit-btn">Authenticate (ZAA JWT)</button>
+            <button type="button" class="btn-demo btn-block" id="btn-demo-login">⚡ Instant Demo Clinician Login</button>
+          </div>
+
+          <div class="auth-message" id="auth-message"></div>
+        </form>
+      </div>
+    </div>
   </div>
 
   <script type="module" src="./main.ts"></script>

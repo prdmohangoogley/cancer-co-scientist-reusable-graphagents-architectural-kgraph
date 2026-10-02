@@ -1,0 +1,78 @@
+{
+  "type": "A2UI_SURFACE",
+  "surface_id": "surf_simulation_docking_002",
+  "timestamp": "2026-10-01T12:45:00Z",
+  "version": "1.1",
+  "intent": "MOLECULAR_SIMULATION",
+  "guidelines_cited": ["DOC-03", "DOC-02"],
+  "components": [
+    {
+      "component": "SimulationViewer",
+      "id": "sim_viewer_osimertinib_t790m",
+      "props": {
+        "simulation_id": "sim_alphafold_docking_osimertinib_790m",
+        "title": "AlphaFold-Multimer & OMPL Docking Trajectory: Osimertinib vs. EGFR T790M",
+        "simulation_type": "AlphaFold_Docking_OMPL",
+        "target_protein": "EGFR Kinase Domain (p.T790M mutant)",
+        "ligand_name": "Osimertinib (AZD9291)",
+        "trajectory_frames": 250,
+        "current_frame": 180,
+        "metrics": {
+          "binding_affinity_kcal_mol": -9.42,
+          "rmsd_angstrom": 1.18,
+          "clash_score": 0.04,
+          "cell_density_confluence_pct": 88.5
+        },
+        "view_config": {
+          "camera_preset": "binding_pocket",
+          "render_style": "surface",
+          "color_scheme": "hydrophobicity"
+        },
+        "trajectory_data_url": "/api/simulations/sim_alphafold_docking_osimertinib_790m/trajectory.bin"
+      }
+    },
+    {
+      "component": "ToxicityWarning",
+      "id": "tox_warning_osimertinib",
+      "props": {
+        "drug_name": "Osimertinib",
+        "severity": "high",
+        "warning_type": "Contraindication",
+        "message": "Risk of QTc interval prolongation, cardiomyopathy, and interstitial lung disease (ILD) / pneumonitis. Concomitant use with strong CYP3A4 inducers or QT-prolonging agents significantly increases toxicity.",
+        "contraindicated_conditions": [
+          "Baseline QTc interval > 470 ms",
+          "Pre-existing interstitial lung disease",
+          "Severe hepatic impairment (Child-Pugh C)"
+        ],
+        "interacting_drugs": [
+          "Rifampin (Strong CYP3A4 Inducer)",
+          "Amiodarone (QTc Prolongation)",
+          "Clarithromycin (CYP3A4 Inhibitor)"
+        ],
+        "adverse_effects": [
+          {
+            "effect": "Interstitial Lung Disease / Pneumonitis",
+            "frequency": "3.3%",
+            "severity": "Grade 3-4 (Fatal in 0.4%)"
+          },
+          {
+            "effect": "QTc Interval Prolongation",
+            "frequency": "4.9%",
+            "severity": "Grade 3 (0.9%)"
+          },
+          {
+            "effect": "Left Ventricular Dysfunction / Cardiomyopathy",
+            "frequency": "2.4%",
+            "severity": "Grade 3"
+          },
+          {
+            "effect": "Diarrhea and Cutaneous Rash",
+            "frequency": "58%",
+            "severity": "Grade 1-2"
+          }
+        ],
+        "clinical_recommendation": "Obtain baseline 12-lead ECG and echocardiogram (LVEF). Withhold treatment if QTc exceeds 500 ms or if acute onset of unexplained dyspnea, cough, and fever occurs. Continuously cross-reference drug interactions in EHR."
+      }
+    }
+  ]
+}

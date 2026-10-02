@@ -1,7 +1,7 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
   "title": "A2UI Precision Oncology Component Catalog",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "Non-executable declarative UI component catalog for Cancer Co-Scientist (DOC-03 compliant)",
   "components": {
     "InsightCard": {
@@ -102,6 +102,129 @@
         }
       },
       "required": ["citations"]
+    },
+    "MemoryTimeline": {
+      "description": "Displays extracted clinical entities, biomarkers, and hypotheses across conversation turns (PAT-MEM-BANK)",
+      "properties": {
+        "title": { "type": "string" },
+        "session_id": { "type": "string" },
+        "total_turns": { "type": "integer" },
+        "turns": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "turn_number": { "type": "integer" },
+              "timestamp": { "type": "string" },
+              "user_query": { "type": "string" },
+              "extracted_entities": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "name": { "type": "string" },
+                    "type": { "type": "string", "enum": ["Gene", "Variant", "Disease", "Drug", "Biomarker", "Pathway"] },
+                    "confidence": { "type": "number" }
+                  },
+                  "required": ["name", "type"]
+                }
+              },
+              "hypotheses": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "id": { "type": "string" },
+                    "statement": { "type": "string" },
+                    "status": { "type": "string", "enum": ["formulated", "testing", "confirmed", "refuted"] },
+                    "confidence": { "type": "number" }
+                  },
+                  "required": ["statement", "status"]
+                }
+              },
+              "summary": { "type": "string" }
+            },
+            "required": ["turn_number", "user_query"]
+          }
+        },
+        "active_biomarkers": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "confirmed_hypotheses_count": { "type": "integer" }
+      },
+      "required": ["turns"]
+    },
+    "SimulationViewer": {
+      "description": "3D/continuous trajectory viewer for AlphaFold docking paths (OMPL) or cellular swarming density (PhysiCell)",
+      "properties": {
+        "simulation_id": { "type": "string" },
+        "title": { "type": "string" },
+        "simulation_type": {
+          "type": "string",
+          "enum": ["AlphaFold_Docking_OMPL", "Cellular_Swarming_PhysiCell", "Molecular_Dynamics"]
+        },
+        "target_protein": { "type": "string" },
+        "ligand_name": { "type": "string" },
+        "trajectory_frames": { "type": "integer" },
+        "current_frame": { "type": "integer" },
+        "metrics": {
+          "type": "object",
+          "properties": {
+            "binding_affinity_kcal_mol": { "type": "number" },
+            "rmsd_angstrom": { "type": "number" },
+            "clash_score": { "type": "number" },
+            "cell_density_confluence_pct": { "type": "number" }
+          }
+        },
+        "view_config": {
+          "type": "object",
+          "properties": {
+            "camera_preset": { "type": "string", "enum": ["default", "binding_pocket", "active_site", "cellular_mesh"] },
+            "render_style": { "type": "string", "enum": ["cartoon", "surface", "stick_ball", "density_field"] },
+            "color_scheme": { "type": "string", "enum": ["chain", "bfactor", "hydrophobicity", "custom"] }
+          }
+        },
+        "trajectory_data_url": { "type": "string" }
+      },
+      "required": ["simulation_id", "title", "simulation_type"]
+    },
+    "ToxicityWarning": {
+      "description": "Displays contraindications, adverse reactions, and clinical warnings",
+      "properties": {
+        "drug_name": { "type": "string" },
+        "severity": {
+          "type": "string",
+          "enum": ["low", "moderate", "high", "critical", "black_box"]
+        },
+        "warning_type": {
+          "type": "string",
+          "enum": ["Contraindication", "Black Box Warning", "Drug-Drug Interaction", "Organ Toxicity", "Adverse Reaction"]
+        },
+        "message": { "type": "string" },
+        "contraindicated_conditions": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "interacting_drugs": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "adverse_effects": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "effect": { "type": "string" },
+              "frequency": { "type": "string" },
+              "severity": { "type": "string" }
+            },
+            "required": ["effect"]
+          }
+        },
+        "clinical_recommendation": { "type": "string" }
+      },
+      "required": ["drug_name", "severity", "message"]
     }
   }
 }

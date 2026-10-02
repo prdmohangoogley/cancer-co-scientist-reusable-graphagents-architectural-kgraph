@@ -72,6 +72,53 @@ resource "google_spanner_database" "primekg_db" {
             created_at)
       )
     EOT
+    ,
+    <<-EOT
+    CREATE TABLE chat_sessions (
+      session_id STRING(64) NOT NULL,
+      user_id STRING(128) NOT NULL,
+      title STRING(256),
+      created_at TIMESTAMP OPTIONS (allow_commit_timestamp = true),
+      last_active_at TIMESTAMP OPTIONS (allow_commit_timestamp = true),
+      metadata_json JSON
+    ) PRIMARY KEY (session_id)
+    EOT
+    ,
+    <<-EOT
+    CREATE TABLE chat_messages (
+      session_id STRING(64) NOT NULL,
+      message_id STRING(64) NOT NULL,
+      role STRING(32) NOT NULL,
+      content_text STRING(MAX),
+      a2ui_payload_json JSON,
+      token_count INT64,
+      created_at TIMESTAMP OPTIONS (allow_commit_timestamp = true),
+      FOREIGN KEY (session_id) REFERENCES chat_sessions (session_id)
+    ) PRIMARY KEY (session_id, message_id)
+    EOT
+    ,
+    <<-EOT
+    CREATE TABLE memory_bank_entities (
+      entity_id STRING(128) NOT NULL,
+      session_id STRING(64) NOT NULL,
+      entity_type STRING(64) NOT NULL,
+      entity_name STRING(256) NOT NULL,
+      confidence FLOAT64,
+      attributes_json JSON,
+      updated_at TIMESTAMP OPTIONS (allow_commit_timestamp = true)
+    ) PRIMARY KEY (session_id, entity_id)
+    EOT
+    ,
+    <<-EOT
+    CREATE TABLE memory_bank_hypotheses (
+      hypothesis_id STRING(64) NOT NULL,
+      session_id STRING(64) NOT NULL,
+      statement STRING(MAX) NOT NULL,
+      evidence_level STRING(32),
+      status STRING(32),
+      created_at TIMESTAMP OPTIONS (allow_commit_timestamp = true)
+    ) PRIMARY KEY (session_id, hypothesis_id)
+    EOT
   ]
 
   deletion_protection = false

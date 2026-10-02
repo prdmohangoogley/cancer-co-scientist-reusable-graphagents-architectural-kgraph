@@ -8,6 +8,7 @@ Adheres to:
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from typing import Any, List, Optional
 
@@ -49,6 +50,161 @@ class SpannerGraphTool:
                 self.use_mock = True
         return self._database
 
+    async def execute_traversal(
+        self,
+        query: str,
+        params: dict[str, Any],
+        param_types: Optional[dict[str, Any]] = None,
+        timeout_ms: int = 1500,
+        max_retries: int = 3,
+        base_delay_seconds: float = 0.1,
+    ) -> list[Any]:
+        """Execute a parameterized ISO GQL query against Spanner Graph with retry and timeout.
+
+        Enforces:
+        - Strict parameterization (named parameters in 'params' dict) to prevent injection (DOC-02, DOC-09).
+        - Query deadline timeout (1500 ms default).
+        - Exponential backoff retry logic for transient Spanner connection errors.
+        """
+        # 1. Enforce strict parameterization
+        if params is None or not isinstance(params, dict):
+            raise ValueError(
+                "Parameterization is strictly enforced for Spanner Graph traversals (DOC-02, DOC-09). "
+                "'params' must be a valid dictionary of query parameters."
+            )
+
+        # 2. Check for mock execution or unavailable live database
+        if self.use_mock:
+            logger.info("Executing Spanner Graph traversal in mock mode.")
+            return self._mock_traversal_rows(params)
+
+        db = self._get_database()
+        if db is None:
+            logger.warning("Spanner database handle unavailable. Returning mock traversal rows.")
+            return self._mock_traversal_rows(params)
+
+        # 3. Live Spanner execution with retry and timeout
+        timeout_seconds = timeout_ms / 1000.0
+
+        transient_exceptions: tuple[type[Exception], ...]
+        try:
+            from google.api_core.exceptions import (
+                Aborted,
+                DeadlineExceeded,
+                InternalServerError,
+                ResourceExhausted,
+                ServiceUnavailable,
+                TransientError,
+            )
+            transient_exceptions = (
+                ServiceUnavailable,
+                ResourceExhausted,
+                InternalServerError,
+                Aborted,
+                DeadlineExceeded,
+                TransientError,
+                ConnectionError,
+                ConnectionResetError,
+                TimeoutError,
+                asyncio.TimeoutError,
+            )
+        except ImportError:
+            transient_exceptions = (
+                ConnectionError,
+                ConnectionResetError,
+                TimeoutError,
+                asyncio.TimeoutError,
+            )
+
+        def _execute_sql_sync() -> list[Any]:
+            with db.snapshot() as snapshot:
+                exec_kwargs: dict[str, Any] = {"params": params}
+                if param_types:
+                    exec_kwargs["param_types"] = param_types
+                return list(snapshot.execute_sql(query, **exec_kwargs))
+
+        delay = base_delay_seconds
+        last_exc: Optional[Exception] = None
+
+        try:
+            from observability.telemetry import trace_span
+        except ImportError:
+            try:
+                from ..observability.telemetry import trace_span
+            except ImportError:
+                from packages.graphagent.observability.telemetry import trace_span
+
+        with trace_span("worker.graph_traversal", workflow_type="Discrete", db_target="Spanner") as span:
+            span.set_attribute("gcp.spanner.query_type", "ISO_GQL")
+            span.set_attribute("gcp.spanner.graph_name", "PrimeKGGraph")
+            span.set_attribute("spanner.timeout_ms", timeout_ms)
+            span.set_attribute("spanner.max_retries", max_retries)
+
+            for attempt in range(1, max_retries + 1):
+                try:
+                    span.set_attribute("spanner.attempt", attempt)
+                    results = await asyncio.wait_for(
+                        asyncio.to_thread(_execute_sql_sync),
+                        timeout=timeout_seconds,
+                    )
+                    span.set_attribute("graphagent.rows_returned", len(results))
+                    return results
+                except transient_exceptions as exc:
+                    last_exc = exc
+                    logger.warning(
+                        f"Transient Spanner error on attempt {attempt}/{max_retries}: {exc}. "
+                        f"Retrying in {delay:.3f}s..."
+                    )
+                    if attempt < max_retries:
+                        await asyncio.sleep(delay)
+                        delay *= 2.0
+                    else:
+                        logger.error(f"Spanner traversal failed after {max_retries} attempts: {exc}")
+                        raise
+                except asyncio.TimeoutError as exc:
+                    last_exc = exc
+                    logger.warning(
+                        f"Spanner query exceeded deadline timeout ({timeout_ms}ms) on attempt {attempt}/{max_retries}."
+                    )
+                    if attempt < max_retries:
+                        await asyncio.sleep(delay)
+                        delay *= 2.0
+                    else:
+                        raise TimeoutError(
+                            f"Spanner Graph traversal exceeded deadline timeout of {timeout_ms}ms."
+                        ) from exc
+                except Exception as exc:
+                    logger.error(f"Non-transient error during Spanner traversal: {exc}")
+                    raise
+
+        if last_exc:
+            raise last_exc
+        return []
+
+    def _mock_traversal_rows(self, params: dict[str, Any]) -> list[Any]:
+        """Generate realistic mock traversal rows matching GQL query return signatures."""
+        src = params.get("source_entity") or params.get("gene_symbol") or "EGFR"
+        dst = params.get("target_entity") or params.get("disease_name") or "Non-small cell lung carcinoma"
+        return [
+            (
+                f"NCBI:{abs(hash(src)) % 10000}",
+                src,
+                "Gene",
+                "E1",
+                "INTERACTS_WITH",
+                0.95,
+                "NCBI:2885",
+                "GRB2",
+                "Gene",
+                "E2",
+                "ASSOCIATED_WITH",
+                0.98,
+                f"MONDO:{abs(hash(dst)) % 10000}",
+                dst,
+                "Disease",
+            )
+        ]
+
     async def find_paths_between(
         self,
         source_entity: str,
@@ -84,52 +240,50 @@ class SpannerGraphTool:
             nodes_map: dict[str, GraphNode] = {}
             edges: list[GraphEdge] = []
 
-            with db.snapshot() as snapshot:
-                results = list(
-                    snapshot.execute_sql(
-                        query_2hop,
-                        params={
-                            "source_entity": source_entity,
-                            "target_entity": target_entity,
-                            "limit": cfg.limit,
-                        },
-                        param_types={
-                            "source_entity": spanner.param_types.STRING,
-                            "target_entity": spanner.param_types.STRING,
-                            "limit": spanner.param_types.INT64,
-                        },
+            results = await self.execute_traversal(
+                query=query_2hop,
+                params={
+                    "source_entity": source_entity,
+                    "target_entity": target_entity,
+                    "limit": cfg.limit,
+                },
+                param_types={
+                    "source_entity": spanner.param_types.STRING,
+                    "target_entity": spanner.param_types.STRING,
+                    "limit": spanner.param_types.INT64,
+                },
+                timeout_ms=1500,
+            )
+
+            for row in results:
+                s_id, s_name, s_label = row[0], row[1], row[2]
+                e1_id, e1_rel, e1_conf = row[3], row[4], row[5]
+                m_id, m_name, m_label = row[6], row[7], row[8]
+                e2_id, e2_rel, e2_conf = row[9], row[10], row[11]
+                d_id, d_name, d_label = row[12], row[13], row[14]
+
+                nodes_map[s_id] = GraphNode(id=s_id, label=s_label, name=s_name)
+                nodes_map[m_id] = GraphNode(id=m_id, label=m_label, name=m_name)
+                nodes_map[d_id] = GraphNode(id=d_id, label=d_label, name=d_name)
+
+                edges.append(
+                    GraphEdge(
+                        source_id=s_id,
+                        target_id=m_id,
+                        relationship=e1_rel,
+                        confidence=float(e1_conf or 1.0),
+                        evidence_source="PrimeKG",
                     )
                 )
-
-                for row in results:
-                    s_id, s_name, s_label = row[0], row[1], row[2]
-                    e1_id, e1_rel, e1_conf = row[3], row[4], row[5]
-                    m_id, m_name, m_label = row[6], row[7], row[8]
-                    e2_id, e2_rel, e2_conf = row[9], row[10], row[11]
-                    d_id, d_name, d_label = row[12], row[13], row[14]
-
-                    nodes_map[s_id] = GraphNode(id=s_id, label=s_label, name=s_name)
-                    nodes_map[m_id] = GraphNode(id=m_id, label=m_label, name=m_name)
-                    nodes_map[d_id] = GraphNode(id=d_id, label=d_label, name=d_name)
-
-                    edges.append(
-                        GraphEdge(
-                            source_id=s_id,
-                            target_id=m_id,
-                            relationship=e1_rel,
-                            confidence=float(e1_conf or 1.0),
-                            evidence_source="PrimeKG",
-                        )
+                edges.append(
+                    GraphEdge(
+                        source_id=m_id,
+                        target_id=d_id,
+                        relationship=e2_rel,
+                        confidence=float(e2_conf or 1.0),
+                        evidence_source="PrimeKG",
                     )
-                    edges.append(
-                        GraphEdge(
-                            source_id=m_id,
-                            target_id=d_id,
-                            relationship=e2_rel,
-                            confidence=float(e2_conf or 1.0),
-                            evidence_source="PrimeKG",
-                        )
-                    )
+                )
 
             if edges:
                 return SubgraphResult(
@@ -186,35 +340,33 @@ class SpannerGraphTool:
             nodes_map: dict[str, GraphNode] = {}
             edges: list[GraphEdge] = []
 
-            with db.snapshot() as snapshot:
-                results = list(
-                    snapshot.execute_sql(
-                        query,
-                        params={"gene_symbol": gene_symbol, "limit": limit},
-                        param_types={
-                            "gene_symbol": spanner.param_types.STRING,
-                            "limit": spanner.param_types.INT64,
-                        },
+            results = await self.execute_traversal(
+                query=query,
+                params={"gene_symbol": gene_symbol, "limit": limit},
+                param_types={
+                    "gene_symbol": spanner.param_types.STRING,
+                    "limit": spanner.param_types.INT64,
+                },
+                timeout_ms=1500,
+            )
+
+            for row in results:
+                s_id, s_name, s_label = row[0], row[1], row[2]
+                e_id, rel, conf = row[3], row[4], row[5]
+                d_id, d_name, d_label = row[6], row[7], row[8]
+
+                nodes_map[s_id] = GraphNode(id=s_id, label=s_label, name=s_name)
+                nodes_map[d_id] = GraphNode(id=d_id, label=d_label, name=d_name)
+
+                edges.append(
+                    GraphEdge(
+                        source_id=s_id,
+                        target_id=d_id,
+                        relationship=rel,
+                        confidence=float(conf or 1.0),
+                        evidence_source="PrimeKG",
                     )
                 )
-
-                for row in results:
-                    s_id, s_name, s_label = row[0], row[1], row[2]
-                    e_id, rel, conf = row[3], row[4], row[5]
-                    d_id, d_name, d_label = row[6], row[7], row[8]
-
-                    nodes_map[s_id] = GraphNode(id=s_id, label=s_label, name=s_name)
-                    nodes_map[d_id] = GraphNode(id=d_id, label=d_label, name=d_name)
-
-                    edges.append(
-                        GraphEdge(
-                            source_id=s_id,
-                            target_id=d_id,
-                            relationship=rel,
-                            confidence=float(conf or 1.0),
-                            evidence_source="PrimeKG",
-                        )
-                    )
 
             if edges:
                 return SubgraphResult(
@@ -263,25 +415,23 @@ class SpannerGraphTool:
             """
             candidates: list[dict[str, Any]] = []
 
-            with db.snapshot() as snapshot:
-                results = list(
-                    snapshot.execute_sql(
-                        query,
-                        params={"limit": limit},
-                        param_types={"limit": spanner.param_types.INT64},
-                    )
-                )
+            results = await self.execute_traversal(
+                query=query,
+                params={"limit": limit},
+                param_types={"limit": spanner.param_types.INT64},
+                timeout_ms=1500,
+            )
 
-                for row in results:
-                    candidates.append({
-                        "drug_id": row[0],
-                        "drug_name": row[1],
-                        "target_gene": row[2],
-                        "target_disease": row[3],
-                        "clinical_phase": "Phase 4 / Approved",
-                        "mechanism": f"Targets {row[2]}",
-                        "confidence": float(row[4] or 0.95),
-                    })
+            for row in results:
+                candidates.append({
+                    "drug_id": row[0],
+                    "drug_name": row[1],
+                    "target_gene": row[2],
+                    "target_disease": row[3],
+                    "clinical_phase": "Phase 4 / Approved",
+                    "mechanism": f"Targets {row[2]}",
+                    "confidence": float(row[4] or 0.95),
+                })
 
             if candidates:
                 return candidates
