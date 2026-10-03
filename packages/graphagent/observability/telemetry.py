@@ -61,6 +61,34 @@ _CACHED_TOKENS_COUNTER = _METER.create_counter(
     description="Number of cached context tokens",
 )
 
+# OpenTelemetry GenAI Semantic Conventions (ADK >= v2.6.0 compliance)
+_GENAI_TOKEN_USAGE_HISTOGRAM = _METER.create_histogram(
+    name="gen_ai.client.token.usage",
+    unit="{token}",
+    description="Measures token usage of GenAI operations",
+)
+_GENAI_OPERATION_DURATION = _METER.create_histogram(
+    name="gen_ai.client.operation.duration",
+    unit="s",
+    description="Measures the duration of GenAI client operations",
+)
+_AGENT_INVOCATIONS_COUNTER = _METER.create_counter(
+    name="agent.invocations",
+    unit="{invocation}",
+    description="Total agent query invocations",
+)
+_AGENT_SESSIONS_COUNTER = _METER.create_counter(
+    name="agent.sessions",
+    unit="{session}",
+    description="Total conversational sessions",
+)
+_AGENT_TURNS_COUNTER = _METER.create_counter(
+    name="agent.turns",
+    unit="{turn}",
+    description="Total conversation turns",
+)
+
+
 # In-memory storage for metrics analysis and summaries
 _LATENCY_RECORDS: dict[str, list[float]] = collections.defaultdict(list)
 _TOKEN_STATE: dict[str, int] = {
@@ -80,30 +108,190 @@ _CORRELATION_CONTEXT: contextvars.ContextVar[dict[str, str]] = contextvars.Conte
 )
 
 
-def init_telemetry(service_name: str = "graphagent-worker") -> Tracer:
-    """Initialize OpenTelemetry tracer provider with cloud-ready resource metadata."""
+def init_telemetry(service_name: str = "cancer-co-scientist-lead-orchestrator") -> Tracer:
+    """Initialize OpenTelemetry tracer and meter providers with cloud-ready GCP ReasoningEngine metadata."""
     global _TRACER_INITIALIZED
 
     if not _TRACER_INITIALIZED:
+        project_id = os.getenv("GCP_PROJECT") or os.getenv("GOOGLE_CLOUD_PROJECT") or "fivedaysai-prd-sandbox-317383"
+        project_number = os.getenv("GCP_PROJECT_NUMBER", "301802433103")
+        reasoning_engine_id = os.getenv("GEA_REASONING_ENGINE_ID", "4359942935643422720")
+        region = os.getenv("GEA_REGION", "us-east1")
+
         resource = Resource.create({
             "service.name": service_name,
-            "service.version": "0.1.0",
-            "deployment.environment": os.getenv("ENVIRONMENT", "dev"),
+            "service.version": "2.6.0",
+            "deployment.environment": os.getenv("ENVIRONMENT", "production"),
             "cloud.provider": "gcp",
+            "cloud.platform": "gcp_vertex_ai",
+            "cloud.region": region,
+            "gcp.project_id": project_id,
+            "gcp.resource_container": f"projects/{project_number}",
+            "aiplatform.googleapis.com/ReasoningEngine": f"projects/{project_number}/locations/{region}/reasoningEngines/{reasoning_engine_id}",
+            "reasoning_engine_id": reasoning_engine_id,
+            "gen_ai.system": "gemini",
+            "gen_ai.request.model": "gemini-2.5-flash",
         })
 
         provider = TracerProvider(resource=resource)
 
-        # In dev/test environments, export to console or in-memory
+        # In GCP environments, attach CloudTraceSpanExporter
+        if os.getenv("ENABLE_GCP_TRACE", "true").lower() == "true":
+            try:
+                from opentelemetry.exporter.cloud_trace import CloudTraceSpanExporter
+                cloud_trace_exporter = CloudTraceSpanExporter(project_id=project_id)
+                provider.add_span_processor(BatchSpanProcessor(cloud_trace_exporter))
+                logger.info(f"OpenTelemetry CloudTraceSpanExporter attached for project {project_id}")
+            except Exception as e:
+                logger.warning(f"Could not attach CloudTraceSpanExporter: {e}")
+
+        # In dev/test environments, export to console if enabled
         if os.getenv("OTEL_EXPORTER_CONSOLE", "false").lower() == "true":
             provider.add_span_processor(BatchSpanProcessor(ConsoleSpanExporter()))
 
         trace.set_tracer_provider(provider)
-        metrics.set_meter_provider(MeterProvider(resource=resource))
+
+        # Attach CloudMonitoringMetricsExporter if available
+        try:
+            from opentelemetry.exporter.gcp_monitoring import CloudMonitoringMetricsExporter
+            from opentelemetry.sdk.metrics.export import PeriodicExportingMetricReader
+            metric_reader = PeriodicExportingMetricReader(
+                CloudMonitoringMetricsExporter(project_id=project_id),
+                export_interval_millis=5000,
+            )
+            meter_provider = MeterProvider(resource=resource, metric_readers=[metric_reader])
+            metrics.set_meter_provider(meter_provider)
+            logger.info(f"OpenTelemetry CloudMonitoringMetricsExporter attached for {project_id}")
+        except Exception as e:
+            logger.warning(f"Could not attach CloudMonitoringMetricsExporter: {e}")
+            metrics.set_meter_provider(MeterProvider(resource=resource))
+
         _TRACER_INITIALIZED = True
-        logger.info(f"OpenTelemetry initialized for {service_name}")
+        logger.info(f"OpenTelemetry initialized for {service_name} with ReasoningEngine {reasoning_engine_id}")
 
     return trace.get_tracer(_TRACER_NAME)
+
+
+# Google Cloud Monitoring Metrics Client
+_MONITORING_CLIENT = None
+
+def get_monitoring_client():
+    """Retrieve or initialize singleton Google Cloud Monitoring MetricServiceClient."""
+    global _MONITORING_CLIENT
+    if _MONITORING_CLIENT is None:
+        try:
+            from google.cloud import monitoring_v3
+            _MONITORING_CLIENT = monitoring_v3.MetricServiceClient()
+        except Exception as e:
+            logger.warning(f"Could not initialize Google Cloud Monitoring client: {e}")
+            _MONITORING_CLIENT = False
+    return _MONITORING_CLIENT if _MONITORING_CLIENT is not False else None
+
+
+def emit_cloud_monitoring_metric(
+    metric_type: str,
+    value: float,
+    metric_kind: str = "GAUGE",
+    labels: Optional[dict[str, str]] = None,
+) -> bool:
+    """Emit custom metric time series point to Google Cloud Monitoring.
+    
+    Metric type e.g.: 'custom.googleapis.com/agent/orchestrator/latency'
+    """
+    client = get_monitoring_client()
+    if not client:
+        return False
+
+    project_id = os.getenv("GCP_PROJECT") or os.getenv("GOOGLE_CLOUD_PROJECT") or "fivedaysai-prd-sandbox-317383"
+    project_name = f"projects/{project_id}"
+    reasoning_engine_id = os.getenv("GEA_REASONING_ENGINE_ID", "4359942935643422720")
+    region = os.getenv("GEA_REGION", "us-east1")
+
+    try:
+        from google.cloud import monitoring_v3
+        from google.protobuf import timestamp_pb2
+
+        series = monitoring_v3.TimeSeries()
+        series.metric.type = metric_type if metric_type.startswith("custom.googleapis.com/") else f"custom.googleapis.com/{metric_type}"
+        metric_labels = {
+            "reasoning_engine_id": reasoning_engine_id,
+            "location": region,
+            "project_id": project_id,
+            "model": "gemini-2.5-flash",
+        }
+        if labels:
+            metric_labels.update(labels)
+        for k, v in metric_labels.items():
+            series.metric.labels[k] = str(v)
+
+        series.resource.type = "global"
+        series.resource.labels["project_id"] = project_id
+
+        now = time.time()
+        seconds = int(now)
+        nanos = int((now - seconds) * 10**9)
+        interval = monitoring_v3.TimeInterval(
+            end_time=timestamp_pb2.Timestamp(seconds=seconds, nanos=nanos)
+        )
+
+        point = monitoring_v3.Point(
+            interval=interval,
+            value=monitoring_v3.TypedValue(double_value=float(value)),
+        )
+        series.points = [point]
+
+        client.create_time_series(name=project_name, time_series=[series])
+        return True
+    except Exception as e:
+        logger.debug(f"Cloud Monitoring metric emission failed for {metric_type}: {e}")
+        return False
+
+
+# Google Cloud Logging Client
+_LOGGING_CLIENT = None
+_CLOUD_LOGGER = None
+
+def get_cloud_logger():
+    """Retrieve or initialize singleton Google Cloud Logging Logger."""
+    global _LOGGING_CLIENT, _CLOUD_LOGGER
+    if _CLOUD_LOGGER is None:
+        try:
+            from google.cloud import logging as gcp_logging
+            project_id = os.getenv("GCP_PROJECT") or os.getenv("GOOGLE_CLOUD_PROJECT") or "fivedaysai-prd-sandbox-317383"
+            _LOGGING_CLIENT = gcp_logging.Client(project=project_id)
+            _CLOUD_LOGGER = _LOGGING_CLIENT.logger("aiplatform.googleapis.com/reasoning_engine")
+        except Exception as e:
+            logger.warning(f"Could not initialize Cloud Logging client: {e}")
+            _CLOUD_LOGGER = False
+    return _CLOUD_LOGGER if _CLOUD_LOGGER is not False else None
+
+
+def emit_cloud_log(
+    message: str,
+    severity: str = "INFO",
+    json_payload: Optional[dict[str, Any]] = None,
+) -> bool:
+    """Emit structured log message directly to Google Cloud Logging."""
+    cloud_logger = get_cloud_logger()
+    if not cloud_logger:
+        return False
+
+    try:
+        payload = {
+            "message": message,
+            "agent": "cancer-co-scientist-lead-orchestrator",
+            "reasoning_engine_id": os.getenv("GEA_REASONING_ENGINE_ID", "4359942935643422720"),
+            "region": os.getenv("GEA_REGION", "us-east1"),
+            "timestamp": time.time(),
+        }
+        if json_payload:
+            payload.update(json_payload)
+
+        cloud_logger.log_struct(payload, severity=severity)
+        return True
+    except Exception as e:
+        logger.debug(f"Cloud Logging emission failed: {e}")
+        return False
 
 
 def get_tracer() -> Tracer:
@@ -213,6 +401,52 @@ def record_token_consumption(
         logger.debug(f"Failed to record OTel token metrics: {e}")
 
 
+def record_genai_metrics(
+    model_name: str = "gemini-1.5-pro",
+    duration_s: float = 0.5,
+    prompt_tokens: int = 150,
+    completion_tokens: int = 80,
+    cached_tokens: int = 0,
+    session_id: str = "default_session",
+    agent_name: str = "cancer-co-scientist-lead-orchestrator",
+) -> None:
+    """Record GenAI Semantic Conventions metrics to OTel instruments and Cloud Monitoring."""
+    record_token_consumption(prompt_tokens, completion_tokens, cached_tokens)
+
+    # 1. OpenTelemetry GenAI Semantic Histograms
+    try:
+        attrs = {
+            "gen_ai.system": "vertexai",
+            "gen_ai.request.model": model_name,
+            "gen_ai.response.model": model_name,
+            "agent.name": agent_name,
+        }
+        _GENAI_OPERATION_DURATION.record(duration_s, attributes=attrs)
+        _GENAI_TOKEN_USAGE_HISTOGRAM.record(prompt_tokens, attributes={**attrs, "gen_ai.token.type": "input"})
+        _GENAI_TOKEN_USAGE_HISTOGRAM.record(completion_tokens, attributes={**attrs, "gen_ai.token.type": "output"})
+        if cached_tokens > 0:
+            _GENAI_TOKEN_USAGE_HISTOGRAM.record(cached_tokens, attributes={**attrs, "gen_ai.token.type": "cache_read"})
+
+        _AGENT_INVOCATIONS_COUNTER.add(1, attributes={"agent.name": agent_name, "status": "success"})
+        _AGENT_TURNS_COUNTER.add(1, attributes={"session.id": session_id, "agent.name": agent_name})
+    except Exception as e:
+        logger.debug(f"Failed to record OTel GenAI instruments: {e}")
+
+    # 2. Cloud Monitoring direct time-series emission
+    try:
+        emit_cloud_monitoring_metric("agent/orchestrator/latency", duration_s * 1000.0, labels={"model": model_name})
+        emit_cloud_monitoring_metric("agent/orchestrator/invocations", 1.0, labels={"agent": agent_name})
+        emit_cloud_monitoring_metric("agent/orchestrator/tokens_consumed", float(prompt_tokens + completion_tokens), labels={"model": model_name})
+        emit_cloud_monitoring_metric("agent/model/calls", 1.0, labels={"model": model_name})
+        emit_cloud_monitoring_metric("agent/model/duration_ms", duration_s * 1000.0, labels={"model": model_name})
+        emit_cloud_monitoring_metric("agent/tokens/input", float(prompt_tokens), labels={"model": model_name})
+        emit_cloud_monitoring_metric("agent/tokens/output", float(completion_tokens), labels={"model": model_name})
+        emit_cloud_monitoring_metric("agent/sessions/active", 1.0, labels={"session_id": session_id})
+    except Exception as e:
+        logger.debug(f"Failed to emit Cloud Monitoring GenAI time series: {e}")
+
+
+
 def get_token_summary() -> dict[str, Any]:
     """Return prompt_tokens, completion_tokens, cached_tokens, and cache_hit_rate_pct."""
     prompt = _TOKEN_STATE["prompt_tokens"]
@@ -294,7 +528,16 @@ def trace_span(
     """
     tracer = get_tracer()
     with tracer.start_as_current_span(name) as span:
+        project_number = os.getenv("GCP_PROJECT_NUMBER", "301802433103")
+        reasoning_engine_id = os.getenv("GEA_REASONING_ENGINE_ID", "4359942935643422720")
+        region = os.getenv("GEA_REGION", "us-east1")
+
         span.set_attribute("gcp.vertex.agent.workflow_type", workflow_type)
+        span.set_attribute("aiplatform.googleapis.com/ReasoningEngine", f"projects/{project_number}/locations/{region}/reasoningEngines/{reasoning_engine_id}")
+        span.set_attribute("reasoning_engine_id", reasoning_engine_id)
+        span.set_attribute("gen_ai.system", "gemini")
+        span.set_attribute("gen_ai.request.model", "gemini-2.5-flash")
+        span.set_attribute("gen_ai.tool.name", name)
         if db_target:
             span.set_attribute("gcp.vertex.agent.db_target", db_target)
 
@@ -332,10 +575,13 @@ def trace_span(
             elapsed_ms = round((time.time() - t0) * 1000, 2)
             span.set_attribute("graphagent.latency_ms", elapsed_ms)
             span.set_attribute("telemetry.latency_ms", elapsed_ms)
+            span.set_attribute("gen_ai.tool.duration", elapsed_ms / 1000.0)
 
             # Automatically record latency to histogram and summary buffer
             rec_attrs = dict(attributes or {})
             rec_attrs["workflow_type"] = workflow_type
+            rec_attrs["gen_ai.tool.name"] = name
+            rec_attrs["reasoning_engine_id"] = reasoning_engine_id
             if db_target:
                 rec_attrs["db_target"] = db_target
             if trace_id:

@@ -14,6 +14,12 @@ This specification defines how the `graphagents` monorepo interfaces with the En
 
 All specifications, architectural reviews, orchestration pipelines, and code generation steps must query the MCP server to ensure continuous conformance with Google Cloud AI agent architecture standards.
 
+### 1.1. The MCP vs. A2A Boundary Rule (DOC-03)
+Per **DOC-03 (Open AI Agent Protocol Stack)**:
+- **MCP (Model Context Protocol)**: Connects an agent to a **tool or deterministic data store** (e.g., Cloud Spanner Graph ISO GQL queries, BigQuery analytics, Architecture Guidelines MCP Server). MCP tools are deterministic functions with defined input/output JSON schemas.
+- **A2A (Agent-to-Agent Protocol)**: Connects an agent to an **autonomous peer agent** (e.g., Lead Orchestrator to `cancer-co-scientist-graph-agent`). A2A carries goal-level delegation, machine-readable Agent Cards (`.well-known/agent-card.json`), scoped task contracts, and versioned artifact exchanges across organizational and domain boundaries.
+- **Anti-Pattern Prohibited**: Never use MCP as a substitute for A2A by reaching past an autonomous agent to query its database directly. The Lead Orchestrator must NEVER query `PrimeKGGraph` directly; it must delegate graph analysis to `cancer-co-scientist-graph-agent` via A2A!
+
 ---
 
 ## 2. Deploying the MCP Server in Your Own GCP Project
@@ -149,9 +155,9 @@ Patterns:
 ## 4. Security Hardening & Zero Ambient Authority (DOC-02)
 
 To satisfy `PAT-ZAA` during MCP communication:
-1. **Workload Identity Federation**: The Lead Orchestrator connects to the remote MCP server (when deployed on Cloud Run) using short-lived Google OpenID Connect (OIDC) identity tokens minted on-demand via the metadata server, scoped exclusively to `https://gea-arch-guidelines-mcp-<hash>.a.run.app`.
-2. **Zero Ambient Credentials**: Neither the local developer environment nor the production Cloud Run containers hold permanent service account keys in environment variables or code repositories.
-3. **Container Sandbox**: The guidelines MCP server executes inside an unprivileged container (`USER 10001:10001`) with read-only root filesystem and restricted network egress.
+1. **Workload Identity Federation**: The Lead Orchestrator connects to the guidelines MCP server using short-lived Google OpenID Connect (OIDC) identity tokens minted on-demand via the metadata server or direct stdio process execution, scoped exclusively to authorized service identities.
+2. **Zero Ambient Credentials**: Neither the local developer environment nor the Agent Engine execution environments hold permanent service account keys in environment variables or code repositories.
+3. **Runtime Sandbox**: The guidelines MCP server executes inside unprivileged environments (`USER 10001:10001`) with read-only root filesystems and restricted network egress. Zero Cloud Run services are deployed in the Cancer Co-Scientist system.
 
 ---
 

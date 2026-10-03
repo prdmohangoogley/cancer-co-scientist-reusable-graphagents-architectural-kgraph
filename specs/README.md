@@ -11,7 +11,7 @@ Per project requirements, **every specification in this directory must align wit
 | ID | Title | Core Focus | Application in Monorepo |
 | :--- | :--- | :--- | :--- |
 | **DOC-01** | AI Agent Quality Engineering | Systematic evaluation, observability, cost & security | Worker eval harness, OpenTelemetry tracing across agents |
-| **DOC-02** | Vibe Coding Agent Security & Evaluation | Sandboxing, Zero Ambient Authority (ZAA), SecOps | Cloud Run / GCE IAM token scoping, non-root containers |
+| **DOC-02** | Vibe Coding Agent Security & Evaluation | Sandboxing, Zero Ambient Authority (ZAA), SecOps | Agent Engine IAM token scoping, non-root sandboxes |
 | **DOC-03** | Open AI Agent Protocol Stack | MCP, A2A, UCP, AP2/x402, and A2UI layering | A2UI non-executable UI generation, MCP tool integration |
 | **DOC-08** | Context Engineering for Stateful AI Agents | Sessions, Memory Banks, RAG architectures | State tracking between router and worker graph agents |
 | **DOC-09** | Platform-Native State Management | Cloud Spanner Graph + BigQuery runtime persistence | Spanner Graph ISO GQL traversal of PrimeKG |
@@ -29,6 +29,11 @@ Per project requirements, **every specification in this directory must align wit
 | [05-worker-tier-graph-traversal-tools-spec.md](./05-worker-tier-graph-traversal-tools-spec.md) | **Active** | Phase 4 Worker Tier Graph Traversal, Query Tools (ISO GQL / BigQuery) & ADK |
 | [06-graphagents-adkworkers-spec.md](./06-graphagents-adkworkers-spec.md) | **Active** | Phase 6 Reusable Graph Agent Library (ADK Workers), 15-Algorithm Engine & Telemetry |
 | [07-co-scientist-spec-web-app.md](./07-co-scientist-spec-web-app.md) | **Active** | Phase 7 Lead Orchestrator, A2UI Web App, Security Hardening, Chat History & Memory Bank |
+| [08-graph-visualization-agent-spec.md](./08-graph-visualization-agent-spec.md) | **Active** | Phase 8 Graph Visualization Specialist Agent & Interactive A2UI Graph Visualizer |
+| [09-gemini-enterprise-agents-deployment-spec.md](./09-gemini-enterprise-agents-deployment-spec.md) | **Active** | Phase 9 Gemini Enterprise Agents Production Deployment, Vertex AI Agent Engine & Cloud Observability |
+| [10-gea-console-observability-evals-memorybank-spec.md](./10-gea-console-observability-evals-memorybank-spec.md) | **Active** | Phase 10 GEA Console Dashboard Operationalization, Interactive Playground, Vertex AI Evaluation Bench, Memory Bank & Continuous Multi-Agent Monitors |
+| [11-a2a-protocol-mesh-agent-card-federation-spec.md](./11-a2a-protocol-mesh-agent-card-federation-spec.md) | **Active** | Phase 11 A2A Protocol Mesh, Agent Card Federation & Dual GEA Runtime Integration |
+| [12-zero-telemetry-remediation-spec.md](./12-zero-telemetry-remediation-spec.md) | **Active** | Phase 12 Zero-Telemetry Remediation, Native Observability, Cloud Trace/Monitoring Exporters, Native Memory Bank & Vertex AI Evaluation API |
 
 ---
 

@@ -225,6 +225,68 @@
         "clinical_recommendation": { "type": "string" }
       },
       "required": ["drug_name", "severity", "message"]
+    },
+    "InteractiveGraphExplorer": {
+      "description": "Interactive biomedical knowledge graph visualizer supporting pan, zoom, force simulation, node selection, and algorithm path highlighting (DOC-03 compliant)",
+      "properties": {
+        "title": { "type": "string" },
+        "algorithm_applied": { "type": "string" },
+        "layout_mode": { "type": "string", "enum": ["force-directed", "hierarchical-dag", "radial-ego", "concentric"] },
+        "node_count": { "type": "integer" },
+        "edge_count": { "type": "integer" },
+        "view_box": {
+          "type": "object",
+          "properties": {
+            "width": { "type": "number" },
+            "height": { "type": "number" }
+          }
+        },
+        "nodes": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "id": { "type": "string" },
+              "name": { "type": "string" },
+              "label": { "type": "string", "enum": ["Gene", "Disease", "Drug", "Pathway", "Phenotype", "Ligand"] },
+              "x": { "type": "number" },
+              "y": { "type": "number" },
+              "radius": { "type": "number" },
+              "color": { "type": "string" },
+              "is_hub": { "type": "boolean" },
+              "is_gatekeeper": { "type": "boolean" },
+              "is_source": { "type": "boolean" },
+              "is_target": { "type": "boolean" },
+              "community_id": { "type": "integer" },
+              "degree": { "type": "integer" },
+              "details": { "type": "object" }
+            },
+            "required": ["id", "name", "label", "x", "y"]
+          }
+        },
+        "edges": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "source_id": { "type": "string" },
+              "target_id": { "type": "string" },
+              "relationship": { "type": "string" },
+              "confidence": { "type": "number" },
+              "is_shortest_path": { "type": "boolean" },
+              "style": { "type": "string", "enum": ["solid", "dashed", "animated-flow"] }
+            },
+            "required": ["source_id", "target_id", "relationship"]
+          }
+        },
+        "metrics_summary": { "type": "object" },
+        "interactive_actions": {
+          "type": "array",
+          "items": { "type": "string" }
+        }
+      },
+      "required": ["title", "nodes", "edges"]
     }
   }
 }
+

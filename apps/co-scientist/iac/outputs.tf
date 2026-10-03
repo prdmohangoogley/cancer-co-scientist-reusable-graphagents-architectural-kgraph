@@ -18,3 +18,8 @@ output "cloud_armor_security_policy_id" {
   value       = google_compute_security_policy.cloud_armor_policy.id
 }
 
+output "vertex_agent_staging_bucket" {
+  description = "GCS bucket for Vertex AI Agent Engine artifacts"
+  value       = google_storage_bucket.vertex_agent_staging.name
+}
+

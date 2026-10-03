@@ -1,0 +1,55 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "name": "cancer-co-scientist-graph-agent",
+  "version": "1.0.0",
+  "description": "Autonomous precision oncology knowledge graph agent executing 15-algorithm matrix over Cloud Spanner PrimeKGGraph and BigQuery analytics.",
+  "owner": "precision-oncology-core@cancercenter.org",
+  "serviceLevelAgreement": {
+    "latency_p50_ms": 45,
+    "latency_p95_ms": 350,
+    "availability_sla": "99.95%"
+  },
+  "securitySchemes": {
+    "google_workload_identity": {
+      "type": "oauth2",
+      "description": "Google Cloud Workload Identity Federation / OIDC Service Account token"
+    }
+  },
+  "defaultInputModes": ["application/json", "text/plain"],
+  "defaultOutputModes": ["application/json"],
+  "skills": [
+    {
+      "id": "discrete_graph_algorithms",
+      "name": "Discrete Graph Traversals",
+      "description": "Point-to-point shortest paths, signaling cascades, and connected modules.",
+      "algorithms": ["dijkstra", "astar", "bfs_dfs", "wcc", "topological_sort", "transitive_closure", "community_detection", "ego_network"],
+      "tags": ["iso-gql", "spanner-graph", "discrete"]
+    },
+    {
+      "id": "structural_node_analytics",
+      "name": "Structural Importance & Vulnerabilities",
+      "description": "Hub protein centrality and gatekeeper pathway bridge detection.",
+      "algorithms": ["pagerank", "betweenness", "subgraph_density", "bridges"],
+      "tags": ["centrality", "vulnerabilities", "structural"]
+    },
+    {
+      "id": "continuous_simulation_delegation",
+      "name": "Continuous Geometry & Multi-Agent Swarming",
+      "description": "AlphaFold protein docking paths and PhysiCell cellular swarms.",
+      "algorithms": ["alphafold_ompl_rrt", "physicell_boids"],
+      "tags": ["continuous", "gke-autopilot", "ompl"]
+    },
+    {
+      "id": "temporal_tracking",
+      "name": "Temporal Graph Tracking & Longitudinal Resistance",
+      "description": "Interval-timestamped edge filtering and algebraic connectivity spectrum.",
+      "algorithms": ["interval_edges", "lambda2_connectivity", "ast_generator"],
+      "tags": ["temporal", "bigquery-analytics", "resistance"]
+    }
+  ],
+  "endpoints": {
+    "task_execution": "/a2a/tasks",
+    "health": "/healthz",
+    "agent_card": "/.well-known/agent-card.json"
+  }
+}

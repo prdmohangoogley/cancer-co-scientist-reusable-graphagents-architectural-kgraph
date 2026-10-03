@@ -35,15 +35,16 @@ graph TD
     end
 
     subgraph Orchestrator_Tier["3. Orchestration Layer (apps/co-scientist/agent)"]
-        Orchestrator["Lead Orchestrator (orchestrator.py - ADK)"]
+        Orchestrator["Lead Orchestrator (orchestrator.py - ADK root_agent)"]
         Router["Intent Router (router.py)"]
+        A2AClient["A2A Protocol Client (a2a_client.py - DOC-03)"]
         MemoryBank["Memory Bank Engine (memory_bank.py - DOC-08)"]
-        Telemetry["OTel Tracing & Quality Evaluator (DOC-01)"]
+        Telemetry["OTel GenAI Telemetry & Quality Evaluator (DOC-01)"]
         MCPBridge["Architecture MCP Client (mcp_client.py)"]
     end
 
-    subgraph Worker_Tier["4. Worker Tier (packages/graphagent)"]
-        PrimeKGWorker["PrimeKGWorkerAgent (ADK Specialist)"]
+    subgraph Worker_Tier["4. Autonomous Worker Tier (packages/graphagent - GEA Agent)"]
+        GraphAgent["cancer-co-scientist-graph-agent (Agent Card /.well-known)"]
         AlgorithmEngine["15-Algorithm Graph Engine (Spanner/GKE)"]
     end
 
@@ -61,9 +62,10 @@ graph TD
     APIGateway -->|Validated User Context| Orchestrator
 
     Orchestrator --> Router
-    Router -->|Clinical Inquiries| PrimeKGWorker
+    Router -->|A2A Task Request| A2AClient
+    A2AClient -->|A2A Task Contract Handshake| GraphAgent
     Router -->|Architectural Audit| MCPBridge
-    PrimeKGWorker --> AlgorithmEngine
+    GraphAgent --> AlgorithmEngine
 
     Orchestrator --> MemoryBank
     MemoryBank -->|Session Load / Store| SpannerSessions
@@ -103,7 +105,7 @@ Adhering to `PAT-ZAA` (Zero Ambient Authority) and enterprise security best prac
        "iat": 1790799100
      }
      ```
-   - **No Ambient Cloud Credentials**: Service credentials and database connection strings are never exposed to the frontend or injected into the prompt context. Cloud Run services assume downscoped Service Accounts via Google Cloud Workload Identity.
+   - **No Ambient Cloud Credentials**: Service credentials and database connection strings are never exposed to the frontend or injected into the prompt context. Agent Engine runtimes assume downscoped Service Accounts via Google Cloud Workload Identity. Zero Cloud Run services are used.
 3. **Role-Based Access Control (RBAC)**:
    - `Role: Clinician` — Full access to patient case sessions, diagnostic graph traversals, and drug repurposing workflows.
    - `Role: Researcher` — Unrestricted access to genomic algorithms, GKE simulation parameterization, and batch analytics.
@@ -114,7 +116,7 @@ Adhering to `PAT-ZAA` (Zero Ambient Authority) and enterprise security best prac
    - Strict CSP headers enforced: `default-src 'self'; script-src 'self'; connect-src 'self' wss://*; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:`.
    - In accordance with `DOC-03`, the backend never emits raw HTML or executable JavaScript strings. The A2UI engine only accepts declarative component JSON trees.
 2. **Container Isolation & Sandboxing**:
-   - Both Frontend UI and Backend Orchestrator Cloud Run containers run strictly as unprivileged non-root users (`USER 10001:10001`).
+   - Both Lead Orchestrator and Graph Agent execute natively on Vertex AI Agent Engine in managed, sandboxed environments. Zero Cloud Run services are deployed.
    - Root filesystem is mounted read-only (`--read-only-root-filesystem`).
    - Ephemeral writable scratch directory limited to `/tmp` in tmpfs.
 3. **Rate Limiting & Cloud Armor Protection**:
@@ -306,27 +308,45 @@ When a clinician clicks a node in `KnowledgeGraphView` or selects an alternative
    - Update `catalog.json` with all oncology, graph, simulation, and security components.
    - Add comprehensive few-shot examples in `examples/` (`subgraph_view.json`, `drug_table.json`, `memory_timeline.json`).
 2. **Orchestrator Backend (`apps/co-scientist/agent/`)**:
-   - Update `orchestrator.py` with ADK, OpenTelemetry tracing, and memory integration.
+   - Export standard ADK `root_agent` in `apps/co-scientist/agent.py` conforming to ADK >= v2.6.0.
+   - Implement `a2a_client.py`: Queries the Graph Agent's Agent Card (`/.well-known/agent-card.json`), mints authenticated A2A task contracts, and delegates graph algorithm execution.
+   - Update `orchestrator.py` with ADK GenAI semantic metrics, OpenTelemetry tracing, and memory integration.
    - Implement `memory_bank.py` adhering to `PAT-MEM-BANK` (session persistence, entity consolidation, semantic recall).
    - Implement `auth.py` for JWT verification, role validation, and ZAA token downscoping.
-   - Enhance `router.py` with algorithm intent classification and `agent.correct_algorithm_choice` evaluation hooks.
+   - Enhance `router.py` with algorithm intent classification and A2A dispatch hooks.
 3. **Web Frontend Client (`apps/co-scientist/ui/`)**:
    - Scaffold modern Lit / TypeScript SPA with A2UI JSON renderer.
    - Implement authentication login modal with mock/OIDC provider integration.
    - Implement chat timeline, Memory Bank sidebar, and interactive graph renderer.
    - Hardened `Dockerfile` executing as `USER 10001:10001`.
 4. **Cloud Infrastructure as Code (`apps/co-scientist/iac/`)**:
-   - Terraform modules deploying backend and UI to Google Cloud Run.
+   - Terraform modules deploying to Vertex AI Agent Engine with zero Cloud Run dependencies.
    - IAM bindings enforcing least privilege and Workload Identity.
    - Cloud Armor security policy and Cloud Spanner session schema DDL.
 
 ---
 
-## 7. Verification & Acceptance Criteria
+## 7. Dual Observability Pipeline & GCP GEA Console Integration
+1. **Local Web App Telemetry HUD**:
+   - Web application features real-time Telemetry HUD badges showing live p50, p95, p99 latencies, cache hit rate, and token economy.
+   - Synchronizes via `GET /api/stats/telemetry`.
+2. **GCP GEA Native Dashboard Stream (ADK >= v2.6.0 OTel Semantic Metrics)**:
+   - Backend automatically streams all session turns, tool calls, and LLM completions to Google Cloud Trace, Cloud Monitoring, and Cloud Logging.
+   - Emits `gen_ai.client.token.usage` (input/output tokens) and `gen_ai.client.operation.duration` (latency by model).
+   - Traces are tagged with `aiplatform.googleapis.com/ReasoningEngine` so the GCP Vertex AI Agent Engine console displays the waterfall traces, tool executions, and latency distribution charts natively.
+3. **Continuous Agent2UI Monitor**:
+   - Automated synthetic tests run every 5 minutes to validate A2UI component JSON emission against `catalog.json` schema to guarantee zero script injection (`DOC-03`) and 100% schema conformance.
 
+---
+
+## 8. Verification & Acceptance Criteria
+
+- [ ] **A2A Protocol**: Orchestrator delegates graph algorithmic tasks to `cancer-co-scientist-graph-agent` via structured A2A task contracts over HTTPS, propagating `traceparent` headers.
+- [ ] **ADK >= v2.6.0**: Exposes `root_agent = Agent(...)` in `agent.py` emitting standard GenAI OTel semantic metrics (`gen_ai.client.token.usage`, `gen_ai.client.operation.duration`).
 - [ ] **Security**: Web app requires authentication; unauthenticated requests receive `401 Unauthorized`. Containers run non-root (`USER 10001:10001`).
-- [ ] **Observability**: OpenTelemetry traces capture all turns, tool dispatches, and LLM calls with correlation IDs.
+- [ ] **Observability**: OpenTelemetry traces capture all turns, A2A hops, tool dispatches, and LLM calls with correlation IDs, exported to both local Telemetry HUD and Google Cloud Trace.
 - [ ] **Retrieval Metrics**: Latency (p50 < 120ms, p95 < 500ms, p99 < 1500ms), token consumption (prompt, completion, cached), mAP (>0.82), Precision@10 (>0.88), Recall@10 (>0.80) are tracked and emitted.
 - [ ] **Algorithm Choice**: `agent.correct_algorithm_choice` is calculated and verified >95% on golden benchmark suites.
-- [ ] **Chat History & Memory Bank**: Multi-turn sessions persist across browser refreshes; past clinical facts are recalled via progressive disclosure without prompt bloating.
+- [ ] **Chat History & Memory Bank**: Multi-turn sessions persist across browser refreshes; past clinical facts are recalled via progressive disclosure without prompt bloating; synced with GCP GEA Memory Bank.
 - [ ] **A2UI Safety**: Orchestrator emits only declarative JSON conforming to `catalog.json`; zero raw executable scripts or HTML strings.
+- [ ] **GCP GEA Console**: Overview, Metrics, Traces, Tools, and Logs tabs in GCP Console display live telemetry and reasoning trajectories.

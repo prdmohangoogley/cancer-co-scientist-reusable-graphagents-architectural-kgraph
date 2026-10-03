@@ -29,8 +29,8 @@ graph TD
         Orchestrator["Lead Orchestrator"]
     end
 
-    subgraph Worker_Tier["Worker Tier (packages/graphagent)"]
-        WorkerAgent["PrimeKGWorkerAgent"]
+    subgraph Worker_Tier["Worker Tier (packages/graphagent - Autonomous GEA Agent)"]
+        WorkerAgent["cancer-co-scientist-graph-agent (ADK root_agent & Agent Card)"]
         TraversalModels["Pydantic Models (SubgraphResult, GraphNode, GraphEdge)"]
         GQLTool["SpannerGraphTool (ISO GQL)"]
         SQLTool["BigQueryAnalyticsTool (SQL)"]
@@ -42,19 +42,20 @@ graph TD
     end
 
     Orchestrator --> Router
-    Router -->|Typed Task Delegation| WorkerAgent
+    Router -->|A2A Task Delegation Contract| WorkerAgent
     WorkerAgent --> GQLTool
     WorkerAgent --> SQLTool
     GQLTool -->|ISO GQL Parameterized Queries| SpannerGraph
     SQLTool -->|BigQuery Parameterized SQL| BigQueryAnalytics
-    WorkerAgent -->|Pydantic Subgraph Payloads| Orchestrator
+    WorkerAgent -->|A2A Task Response (Pydantic Subgraph Payloads)| Orchestrator
 ```
 
 ### 2.2. Architectural Invariants
-1. **Headless Execution**: The Worker Tier must NEVER generate HTML, CSS, or executable UI code. It emits only typed Pydantic payloads.
-2. **Deterministic ISO GQL Parameterization**: All Spanner Graph queries must strictly utilize named parameters (`@source_entity`, `@target_entity`, `@limit`) to prevent injection and maximize Spanner query plan cache hit rates.
-3. **Resilient Offline / Mock Fallback**: Tools must support zero-credential mock mode for offline local development and deterministic CI/CD unit testing.
-4. **Zero Ambient Authority (ZAA) (DOC-02)**: Database clients authenticate with explicitly scoped IAM tokens (`roles/spanner.databaseReader`, `roles/bigquery.dataViewer`). Ambient metadata service credentials must never be exposed to agent prompt contexts.
+1. **Autonomous A2A Agent Identity**: The Worker Tier is packaged and deployed as an independent Gemini Enterprise Agent (`cancer-co-scientist-graph-agent`) on Vertex AI Agent Engine, exporting `agent.py:root_agent` and publishing its Agent Card at `/.well-known/agent-card.json`.
+2. **Headless Execution**: The Worker Tier must NEVER generate HTML, CSS, or executable UI code. It emits only typed Pydantic payloads over A2A.
+3. **Deterministic ISO GQL Parameterization**: All Spanner Graph queries must strictly utilize named parameters (`@source_entity`, `@target_entity`, `@limit`) to prevent injection and maximize Spanner query plan cache hit rates.
+4. **Resilient Offline / Mock Fallback**: Tools must support zero-credential mock mode for offline local development and deterministic CI/CD unit testing.
+5. **Zero Ambient Authority (ZAA) (DOC-02)**: Database clients authenticate with explicitly scoped IAM tokens (`roles/spanner.databaseReader`, `roles/bigquery.dataViewer`). Ambient metadata service credentials must never be exposed to agent prompt contexts.
 
 ---
 

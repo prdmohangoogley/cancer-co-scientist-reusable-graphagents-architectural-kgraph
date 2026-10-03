@@ -113,13 +113,41 @@ Configure the ADK environment to emit and monitor the following mandatory metric
   - Asserts that `agent.correct_algorithm_choice` achieves $\ge 95\%$ accuracy before any release is promoted.
   - Verifies OpenTelemetry trace generation and latency percentiles.
 
+### 6. Native GCP GEA Cloud Trace & Cloud Monitoring Metrics Integration
+- **Google Cloud Trace Exporter (`opentelemetry-exporter-gcp-trace`)**:
+  - Telemetry pipeline exports directly to Google Cloud Trace with parent span context and resource attributes:
+    `aiplatform.googleapis.com/ReasoningEngine`, `service.name=cancer-co-scientist-graph-agent`, `location=us-east1`.
+  - All 15 algorithms generate spans with `graphagent.algorithm`, `graphagent.category`, `graphagent.node_count`, `graphagent.edge_count`, and `graphagent.latency_ms`.
+- **Google Cloud Monitoring Custom Metrics & GenAI Semantics (ADK >= v2.6.0)**:
+  - Metric `gen_ai.client.token.usage` (histogram of prompt/completion tokens).
+  - Metric `gen_ai.client.operation.duration` (histogram of model latency).
+  - Emits time series to `custom.googleapis.com/agent/graph_algorithm/latency` (distribution), `custom.googleapis.com/agent/graph_algorithm/invocations` (counter), `custom.googleapis.com/agent/graph_algorithm/error_count` (counter), and `custom.googleapis.com/agent/graph_algorithm/map_score` (gauge).
+  - Populates native metric charts in the GCP GEA Console and Cloud Monitoring.
+- **Continuous Graph Agent Quality Monitor**:
+  - Background synthetic monitor executes health probes across all 4 algorithmic families (Dijkstra, PageRank, OMPL AlphaFold, Temporal Interval Edges) every 5 minutes to continuously verify SLA (< 45ms p50, < 350ms p95) and error rate (< 0.1%).
+
+### 7. Autonomous Gemini Enterprise Agent Architecture & A2A Card (`agent.py:root_agent`)
+In strict adherence to **DOC-03** and **DOC-04**, `packages/graphagent` is packaged and deployed as a standalone Gemini Enterprise Agent on Vertex AI Agent Engine:
+1. **Root Agent Export (`packages/graphagent/agent.py`)**:
+   - Implements standard ADK `root_agent = Agent(name="cancer_co_scientist_graph_agent", model="gemini-1.5-pro", tools=[...])`.
+   - Conforms to Vertex AI Reasoning Engine `query(input, query, prompt, session_id)` and `stream_query(...)` interfaces.
+2. **A2A Agent Card (`packages/graphagent/.well-known/agent-card.json`)**:
+   - Publishes machine-readable capabilities, endpoint URL, input/output schemas, and 15-algorithm matrix skills.
+3. **A2A Task Delegation Handlers**:
+   - Handles `A2aTaskRequest` from the Lead Orchestrator, executes graph traversals, and returns `A2aTaskResponse` with Pydantic subgraphs and OpenTelemetry trace propagation headers.
+
 ---
 
 ## ✅ Acceptance Criteria
-- The package is installable locally (`pip install ./packages/graphagent`).
-- Spans for all 15 algorithmic Workers successfully emit to Google Cloud Trace with fine-grained custom attributes (`gcp.vertex.agent.workflow_type`, `gcp.vertex.agent.db_target`).
+- The package is installable locally (`pip install ./packages/graphagent`) and deployable as a standalone GEA Reasoning Engine (`cancer-co-scientist-graph-agent`).
+- Publishes `.well-known/agent-card.json` conforming to A2A specification.
+- Exposes `agent.py:root_agent` conforming to ADK >= v2.6.0 standards.
+- Emits OpenTelemetry GenAI semantic metrics (`gen_ai.client.token.usage`, `gen_ai.client.operation.duration`).
+- Spans for all 15 algorithmic Workers successfully emit to Google Cloud Trace with fine-grained custom attributes (`gcp.vertex.agent.workflow_type`, `gcp.vertex.agent.db_target`, `aiplatform.googleapis.com/ReasoningEngine`).
+- Time-series metrics stream to Google Cloud Monitoring custom metric descriptors.
 - Latency meets budget (p50 < 45ms, p95 < 350ms, p99 < 1200ms).
 - Retrieval metrics meet quality thresholds (mAP > 0.86, Precision@10 > 0.89, Recall@10 > 0.84).
 - `agent.correct_algorithm_choice` score is validated at $\ge 95\%$ across the golden evaluation suite.
 - GKE simulation connectors gracefully degrade with fallback heuristic graph statistics when continuous compute is unavailable.
+- Continuous monitor records live health heartbeats to Cloud Monitoring.
 

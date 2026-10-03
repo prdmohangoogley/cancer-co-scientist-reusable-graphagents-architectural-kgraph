@@ -521,3 +521,87 @@ class MemoryBankEngine:
             "entity_count": len(entities),
             "hypothesis_count": len(hypotheses),
         }
+
+    # =========================================================================
+    # Native Vertex AI Agent Engine Memory Bank Synchronization (Spec 12)
+    # =========================================================================
+
+    def sync_to_vertex_memory_bank(
+        self,
+        session_id: str,
+        user_id: str = "oncology_clinician",
+        reasoning_engine_id: Optional[str] = None,
+        project_id: Optional[str] = None,
+        location: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Synchronizes consolidated clinical entities and hypotheses to the native Vertex AI Agent Engine Memory Bank.
+        
+        Uses google.cloud.aiplatform_v1beta1.MemoryBankServiceClient to populate the console Memories tab.
+        """
+        import os
+        proj = project_id or os.getenv("GCP_PROJECT") or os.getenv("GOOGLE_CLOUD_PROJECT") or "fivedaysai-prd-sandbox-317383"
+        loc = location or os.getenv("GEA_REGION", "us-east1")
+        engine_id = reasoning_engine_id or os.getenv("GEA_REASONING_ENGINE_ID", "4359942935643422720")
+
+        entities = self._entities.get(session_id, [])
+        hypotheses = self._hypotheses.get(session_id, [])
+
+        synced_count = 0
+        errors = []
+
+        try:
+            from google.cloud import aiplatform_v1beta1
+            from google.api_core.client_options import ClientOptions
+
+            client = aiplatform_v1beta1.MemoryBankServiceClient(
+                client_options=ClientOptions(api_endpoint=f"{loc}-aiplatform.googleapis.com")
+            )
+            parent = f"projects/{proj}/locations/{loc}/reasoningEngines/{engine_id}"
+
+            # 1. Sync clinical entities
+            for ent in entities:
+                try:
+                    fact_str = (
+                        f"Patient Entity: {ent.entity_name} [{ent.entity_type.upper()}]. "
+                        f"Confidence: {ent.confidence:.2f}. "
+                        f"Clinical Attributes: {json.dumps(ent.properties)}"
+                    )
+                    memory = aiplatform_v1beta1.Memory(
+                        fact=fact_str,
+                        scope={"user_id": user_id, "session_id": session_id, "entity_type": ent.entity_type},
+                    )
+                    client.create_memory(parent=parent, memory=memory)
+                    synced_count += 1
+                except Exception as ex:
+                    errors.append(f"Entity {ent.entity_name}: {ex}")
+
+            # 2. Sync clinical hypotheses
+            for hyp in hypotheses:
+                try:
+                    fact_str = (
+                        f"Precision Oncology Hypothesis: {hyp.statement} "
+                        f"(Evidence: {hyp.evidence_level}, Status: {hyp.status}, Confidence: {hyp.confidence:.2f})"
+                    )
+                    memory = aiplatform_v1beta1.Memory(
+                        fact=fact_str,
+                        scope={"user_id": user_id, "session_id": session_id, "evidence_level": hyp.evidence_level},
+                    )
+                    client.create_memory(parent=parent, memory=memory)
+                    synced_count += 1
+                except Exception as ex:
+                    errors.append(f"Hypothesis: {ex}")
+
+            logger.info(f"Synchronized {synced_count} clinical memories to Vertex AI ReasoningEngine {engine_id}")
+        except Exception as e:
+            logger.warning(f"Failed connecting to Vertex AI MemoryBankServiceClient: {e}")
+            errors.append(str(e))
+
+        return {
+            "status": "SUCCESS" if synced_count > 0 or not errors else "PARTIAL",
+            "session_id": session_id,
+            "reasoning_engine_id": engine_id,
+            "synced_memories": synced_count,
+            "total_entities": len(entities),
+            "total_hypotheses": len(hypotheses),
+            "errors": errors,
+        }

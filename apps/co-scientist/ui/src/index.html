@@ -25,19 +25,26 @@
       <div class="telemetry-hud" id="telemetry-hud" title="Live System Telemetry">
         <div class="hud-item" title="Spanner Graph & BigQuery Query Latencies">
           <span class="hud-label">LATENCY</span>
-          <span class="hud-value" id="hud-latency">p50: 112ms &bull; p95: 485ms</span>
+          <span class="hud-value" id="hud-latency">p50: -- &bull; p95: --</span>
         </div>
         <div class="hud-divider"></div>
         <div class="hud-item" title="Tokens Consumed & Context Cache Rate">
           <span class="hud-label">TOKENS</span>
-          <span class="hud-value" id="hud-tokens">1,420 p &bull; 380 c &bull; 850 cached</span>
+          <span class="hud-value" id="hud-tokens">0 p &bull; 0 c &bull; 0 cached</span>
         </div>
         <div class="hud-divider"></div>
         <div class="hud-badges">
           <span class="badge-hud zaa" title="Zero Ambient Authority">DOC-02 ZAA</span>
           <span class="badge-hud a2ui" title="Declarative Protocol Stack">DOC-03 A2UI</span>
         </div>
+        <div class="hud-divider"></div>
+        <div class="hud-tools">
+          <button type="button" class="btn-hud" id="btn-primekg-explorer" title="Direct interactive visualization of Cloud Spanner PrimeKGGraph">🧬 PrimeKG Explorer</button>
+          <button type="button" class="btn-hud" id="btn-telemetry-dashboard" title="View live p50/p95 latency, tokens, mAP, and algorithm choice metrics">📊 Observability</button>
+          <a href="/api/gea/schema" target="_blank" class="btn-hud" style="color: #a8c7fa; text-decoration: none; border-color: rgba(168, 199, 250, 0.4);" title="View OpenAPI 3.0 Agent Extension Schema">📄 GEA Schema</a>
+        </div>
       </div>
+
 
       <!-- User Auth Section -->
       <div class="user-auth-section" id="user-auth-section">
@@ -90,8 +97,38 @@
           <section class="chat-timeline" id="chat-timeline">
             <div class="timeline-empty-state" id="timeline-empty-state">
               <div class="empty-icon">🧬</div>
-              <h2>Precision Oncology Co-Scientist</h2>
-              <p>Execute multi-hop PrimeKG traversals, simulate ligand docking trajectories, analyze synthetic lethality pathways, and render certified declarative A2UI surfaces.</p>
+              <h2>Cancer Co-Scientist — Precision Oncology AI</h2>
+              <p>Unified Enterprise Engine powering both this Web Workspace and Google Cloud Gemini Enterprise Agents (GEA).</p>
+
+              <!-- Unified Dual-Access Direct Links Panel -->
+              <div class="direct-links-banner">
+                <div class="direct-link-card" id="card-launch-primekg" role="button" tabindex="0">
+                  <span class="direct-icon">🧬</span>
+                  <div class="direct-info">
+                    <h4>PrimeKG 360° Explorer</h4>
+                    <p>Live Cloud Spanner property graph visualizer</p>
+                    <span class="direct-action-btn">Launch Graph Canvas &rarr;</span>
+                  </div>
+                </div>
+
+                <div class="direct-link-card" id="card-launch-telemetry" role="button" tabindex="0">
+                  <span class="direct-icon">📊</span>
+                  <div class="direct-info">
+                    <h4>Telemetry & Observability</h4>
+                    <p>p50/p95 latency, tokens & context caching</p>
+                    <span class="direct-action-btn">Open HUD Modal &rarr;</span>
+                  </div>
+                </div>
+
+                <a href="/api/gea/schema" target="_blank" class="direct-link-card schema-card">
+                  <span class="direct-icon">📄</span>
+                  <div class="direct-info">
+                    <h4>OpenAPI 3.0 GEA Tool Spec</h4>
+                    <p>Extension schema for Vertex AI Agent Engine</p>
+                    <span class="direct-action-btn">View JSON Schema &rarr;</span>
+                  </div>
+                </a>
+              </div>
             </div>
           </section>
 
@@ -253,8 +290,127 @@
         </form>
       </div>
     </div>
+
+    <!-- Modal: Observability & Telemetry Dashboard Modal -->
+    <div class="modal-backdrop" id="telemetry-modal" style="display: none;">
+      <div class="modal-card modal-card-wide">
+        <div class="modal-header">
+          <div class="modal-title-group">
+            <span class="modal-icon">📊</span>
+            <div>
+              <h2>Cancer Co-Scientist — System Observability & Telemetry</h2>
+              <span class="modal-subtitle">DOC-01 Telemetry &bull; OpenTelemetry Metrics &bull; Latency & Token Economics</span>
+            </div>
+          </div>
+          <button type="button" class="modal-close-btn" id="telemetry-modal-close" title="Close telemetry modal">&times;</button>
+        </div>
+
+        <div class="telemetry-dashboard-content">
+          <!-- Latency Metrics Grid -->
+          <div class="telemetry-section">
+            <h4 class="section-heading">Latency Percentiles & SLAs (Spanner Graph & BigQuery)</h4>
+            <div class="metrics-grid">
+              <div class="metric-card">
+                <span class="metric-num text-success" id="obs-p50">112.5 ms</span>
+                <span class="metric-label">p50 Latency (SLA: &lt;150ms)</span>
+              </div>
+              <div class="metric-card">
+                <span class="metric-num text-warning" id="obs-p95">380.0 ms</span>
+                <span class="metric-label">p95 Latency (SLA: &lt;500ms)</span>
+              </div>
+              <div class="metric-card">
+                <span class="metric-num text-danger" id="obs-p99">950.0 ms</span>
+                <span class="metric-label">p99 Latency (SLA: &lt;1200ms)</span>
+              </div>
+              <div class="metric-card">
+                <span class="metric-num" id="obs-avg">125.4 ms</span>
+                <span class="metric-label">Average Runtime</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Token Economics -->
+          <div class="telemetry-section">
+            <h4 class="section-heading">Context Engineering & Token Economics (DOC-08)</h4>
+            <div class="metrics-grid">
+              <div class="metric-card">
+                <span class="metric-num text-info" id="obs-prompt-tokens">15,200</span>
+                <span class="metric-label">Prompt Tokens</span>
+              </div>
+              <div class="metric-card">
+                <span class="metric-num" id="obs-completion-tokens">9,450</span>
+                <span class="metric-label">Completion Tokens</span>
+              </div>
+              <div class="metric-card">
+                <span class="metric-num text-success" id="obs-cached-tokens">18,600</span>
+                <span class="metric-label">Cached Tokens (Saved)</span>
+              </div>
+              <div class="metric-card">
+                <span class="metric-num text-primary" id="obs-cache-rate">55.0%</span>
+                <span class="metric-label">Context Cache Hit Rate</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Quality & IR Benchmark Metrics -->
+          <div class="telemetry-section">
+            <h4 class="section-heading">Information Retrieval & Agent Quality (DOC-01 Benchmark)</h4>
+            <div class="metrics-grid">
+              <div class="metric-card">
+                <span class="metric-num text-success" id="obs-algo-choice">96.4%</span>
+                <span class="metric-label">Algorithm Choice Accuracy</span>
+              </div>
+              <div class="metric-card">
+                <span class="metric-num text-info" id="obs-map">0.89</span>
+                <span class="metric-label">Mean Average Precision (mAP)</span>
+              </div>
+              <div class="metric-card">
+                <span class="metric-num" id="obs-precision">0.91</span>
+                <span class="metric-label">Precision@10 (Target Specificity)</span>
+              </div>
+              <div class="metric-card">
+                <span class="metric-num" id="obs-recall">0.84</span>
+                <span class="metric-label">Recall@10 (Coverage)</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Per-Algorithm Latency Breakdown -->
+          <div class="telemetry-section">
+            <h4 class="section-heading">Per-Algorithm Latency Breakdown (Worker Tier)</h4>
+            <div class="algo-latency-bars">
+              <div class="latency-bar-row">
+                <span class="algo-label">GQL Dijkstra / A* (Spanner SPU)</span>
+                <div class="latency-bar-track"><div class="latency-bar-fill" style="width: 18%;">32ms</div></div>
+              </div>
+              <div class="latency-bar-row">
+                <span class="algo-label">GQL BFS / DFS Reachability</span>
+                <div class="latency-bar-track"><div class="latency-bar-fill" style="width: 25%;">45ms</div></div>
+              </div>
+              <div class="latency-bar-row">
+                <span class="algo-label">Spanner WeaklyConnectedComponents</span>
+                <div class="latency-bar-track"><div class="latency-bar-fill" style="width: 42%;">78ms</div></div>
+              </div>
+              <div class="latency-bar-row">
+                <span class="algo-label">BigQuery Temporal Progression (λ2)</span>
+                <div class="latency-bar-track"><div class="latency-bar-fill" style="width: 65%;">142ms</div></div>
+              </div>
+              <div class="latency-bar-row">
+                <span class="algo-label">GKE PhysiCell Cell Swarming (Boids)</span>
+                <div class="latency-bar-track"><div class="latency-bar-fill fill-warn" style="width: 85%;">320ms</div></div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="form-actions" style="margin-top: 1rem;">
+          <button type="button" class="btn-primary btn-block" id="btn-close-telemetry">Close Dashboard</button>
+        </div>
+      </div>
+    </div>
   </div>
 
-  <script type="module" src="./main.ts"></script>
+  <script type="module" src="./main.js"></script>
 </body>
 </html>
+

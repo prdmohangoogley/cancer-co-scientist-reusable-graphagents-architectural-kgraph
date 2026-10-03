@@ -7,47 +7,25 @@
  * - DOC-09: Cloud Spanner ACID session persistence
  */
 
-import { A2UIRenderer, A2UISurfacePayload, A2UIComponent } from './a2ui-renderer';
+import { A2UIRenderer } from './a2ui-renderer.js';
 
 // Constants
-const API_BASE_URL = 'http://localhost:8000';
+const API_BASE_URL = window.location.origin;
 const STORAGE_JWT_KEY = 'ccs_zaa_jwt_token';
 const STORAGE_USER_KEY = 'ccs_authenticated_user';
 
-interface UserProfile {
-  email: string;
-  name: string;
-  role: string;
-  institution: string;
-}
 
-interface ChatSession {
-  session_id: string;
-  title: string;
-  created_at: string;
-  last_active_at: string;
-  message_count: number;
-}
 
-interface MemoryBankState {
-  variants: Array<{ name: string; gene: string; significance: string }>;
-  biomarkers: Array<{ name: string; status: string; evidence: string }>;
-  hypotheses: Array<{ id: string; statement: string; status: string }>;
-  cache_hit_rate_pct: number;
-}
 
-interface TelemetryMetrics {
-  p50_latency_ms: number;
-  p95_latency_ms: number;
-  prompt_tokens: number;
-  completion_tokens: number;
-  cached_tokens: number;
-}
+
+
+
+
 
 // Global State
-let currentSessionId: string = 'sess_egfr_lung_default';
-let sessionList: ChatSession[] = [];
-let memoryBankState: MemoryBankState = {
+let currentSessionId = 'sess_egfr_lung_default';
+let sessionList = [];
+let memoryBankState = {
   variants: [],
   biomarkers: [],
   hypotheses: [],
@@ -55,67 +33,72 @@ let memoryBankState: MemoryBankState = {
 };
 
 // DOM References
-const surfaceElement = document.getElementById('a2ui-surface') as HTMLElement;
+const surfaceElement = document.getElementById('a2ui-surface');
 const renderer = new A2UIRenderer(surfaceElement);
 
-const inquiryForm = document.getElementById('inquiry-form') as HTMLFormElement;
-const queryInput = document.getElementById('query-input') as HTMLInputElement;
-const submitBtn = document.getElementById('submit-btn') as HTMLButtonElement;
-const chatTimeline = document.getElementById('chat-timeline') as HTMLElement;
-const timelineEmptyState = document.getElementById('timeline-empty-state') as HTMLElement;
-const workspaceScrollArea = document.getElementById('workspace-scroll-area') as HTMLElement;
+const inquiryForm = document.getElementById('inquiry-form');
+const queryInput = document.getElementById('query-input');
+const submitBtn = document.getElementById('submit-btn');
+const chatTimeline = document.getElementById('chat-timeline');
+const timelineEmptyState = document.getElementById('timeline-empty-state');
+const workspaceScrollArea = document.getElementById('workspace-scroll-area');
 
 // Top Nav & Auth Elements
-const userProfileDiv = document.getElementById('user-profile') as HTMLElement;
-const userUnauthDiv = document.getElementById('user-unauthenticated') as HTMLElement;
-const userDisplayName = document.getElementById('user-display-name') as HTMLElement;
-const userRoleBadge = document.getElementById('user-role-badge') as HTMLElement;
-const btnOpenLogin = document.getElementById('btn-open-login') as HTMLButtonElement;
-const btnLogout = document.getElementById('btn-logout') as HTMLButtonElement;
+const userProfileDiv = document.getElementById('user-profile');
+const userUnauthDiv = document.getElementById('user-unauthenticated');
+const userDisplayName = document.getElementById('user-display-name');
+const userRoleBadge = document.getElementById('user-role-badge');
+const btnOpenLogin = document.getElementById('btn-open-login');
+const btnLogout = document.getElementById('btn-logout');
 
 // Telemetry HUD Elements
-const hudLatency = document.getElementById('hud-latency') as HTMLElement;
-const hudTokens = document.getElementById('hud-tokens') as HTMLElement;
+const hudLatency = document.getElementById('hud-latency');
+const hudTokens = document.getElementById('hud-tokens');
 
 // Sidebar Sessions Elements
-const sessionListContainer = document.getElementById('session-list') as HTMLElement;
-const sessionCountSpan = document.getElementById('session-count') as HTMLElement;
-const sessionSearchInput = document.getElementById('session-search') as HTMLInputElement;
-const btnNewSession = document.getElementById('btn-new-session') as HTMLButtonElement;
+const sessionListContainer = document.getElementById('session-list');
+const sessionCountSpan = document.getElementById('session-count');
+const sessionSearchInput = document.getElementById('session-search');
+const btnNewSession = document.getElementById('btn-new-session');
 
 // Memory Bank Drawer Elements
-const memoryBankDrawer = document.getElementById('memory-bank-drawer') as HTMLElement;
-const drawerToggleBtn = document.getElementById('drawer-toggle-btn') as HTMLButtonElement;
-const drawerFloatingBtn = document.getElementById('drawer-floating-btn') as HTMLButtonElement;
-const activeVariantsList = document.getElementById('active-variants-list') as HTMLElement;
-const activeBiomarkersList = document.getElementById('active-biomarkers-list') as HTMLElement;
-const confirmedHypothesesList = document.getElementById('confirmed-hypotheses-list') as HTMLElement;
-const countVariants = document.getElementById('count-variants') as HTMLElement;
-const countBiomarkers = document.getElementById('count-biomarkers') as HTMLElement;
-const countHypotheses = document.getElementById('count-hypotheses') as HTMLElement;
-const metricCacheHit = document.getElementById('metric-cache-hit') as HTMLElement;
+const memoryBankDrawer = document.getElementById('memory-bank-drawer');
+const drawerToggleBtn = document.getElementById('drawer-toggle-btn');
+const drawerFloatingBtn = document.getElementById('drawer-floating-btn');
+const activeVariantsList = document.getElementById('active-variants-list');
+const activeBiomarkersList = document.getElementById('active-biomarkers-list');
+const confirmedHypothesesList = document.getElementById('confirmed-hypotheses-list');
+const countVariants = document.getElementById('count-variants');
+const countBiomarkers = document.getElementById('count-biomarkers');
+const countHypotheses = document.getElementById('count-hypotheses');
+const metricCacheHit = document.getElementById('metric-cache-hit');
 
 // Auth Modal Elements
-const authModal = document.getElementById('auth-modal') as HTMLElement;
-const authModalClose = document.getElementById('auth-modal-close') as HTMLButtonElement;
-const authForm = document.getElementById('auth-form') as HTMLFormElement;
-const authEmail = document.getElementById('auth-email') as HTMLInputElement;
-const authPassword = document.getElementById('auth-password') as HTMLInputElement;
-const authRole = document.getElementById('auth-role') as HTMLSelectElement;
-const btnDemoLogin = document.getElementById('btn-demo-login') as HTMLButtonElement;
-const authMessage = document.getElementById('auth-message') as HTMLElement;
-const tabLogin = document.getElementById('tab-login') as HTMLButtonElement;
-const tabRegister = document.getElementById('tab-register') as HTMLButtonElement;
+const authModal = document.getElementById('auth-modal');
+const authModalClose = document.getElementById('auth-modal-close');
+const authForm = document.getElementById('auth-form');
+const authEmail = document.getElementById('auth-email');
+const authPassword = document.getElementById('auth-password');
+const authRole = document.getElementById('auth-role');
+const btnDemoLogin = document.getElementById('btn-demo-login');
+const authMessage = document.getElementById('auth-message');
+const tabLogin = document.getElementById('tab-login');
+const tabRegister = document.getElementById('tab-register');
+const btnPrimekgExplorer = document.getElementById('btn-primekg-explorer');
+const btnTelemetryDashboard = document.getElementById('btn-telemetry-dashboard');
+const telemetryModal = document.getElementById('telemetry-modal');
+const telemetryModalClose = document.getElementById('telemetry-modal-close');
+const btnCloseTelemetry = document.getElementById('btn-close-telemetry');
 
 // -------------------------------------------------------------
 // 1. Authentication & Token Management (DOC-02 ZAA)
 // -------------------------------------------------------------
 
-function getAuthToken(): string | null {
+function getAuthToken(){
   return sessionStorage.getItem(STORAGE_JWT_KEY);
 }
 
-function getStoredUser(): UserProfile | null {
+function getStoredUser(){
   const raw = sessionStorage.getItem(STORAGE_USER_KEY);
   if (!raw) return null;
   try {
@@ -125,20 +108,20 @@ function getStoredUser(): UserProfile | null {
   }
 }
 
-function setAuthToken(token: string, user: UserProfile): void {
+function setAuthToken(token, user){
   sessionStorage.setItem(STORAGE_JWT_KEY, token);
   sessionStorage.setItem(STORAGE_USER_KEY, JSON.stringify(user));
   updateAuthUI();
 }
 
-function clearAuth(): void {
+function clearAuth(){
   sessionStorage.removeItem(STORAGE_JWT_KEY);
   sessionStorage.removeItem(STORAGE_USER_KEY);
   updateAuthUI();
   showAuthModal();
 }
 
-function updateAuthUI(): void {
+function updateAuthUI(){
   const token = getAuthToken();
   const user = getStoredUser();
 
@@ -154,17 +137,17 @@ function updateAuthUI(): void {
   }
 }
 
-function showAuthModal(): void {
+function showAuthModal(){
   authModal.style.display = 'flex';
   authMessage.textContent = '';
   authMessage.className = 'auth-message';
 }
 
-function hideAuthModal(): void {
+function hideAuthModal(){
   authModal.style.display = 'none';
 }
 
-function getAuthHeaders(): HeadersInit {
+function getAuthHeaders(){
   const token = getAuthToken();
   return {
     'Content-Type': 'application/json',
@@ -176,7 +159,7 @@ function getAuthHeaders(): HeadersInit {
 // 2. Multi-Turn Session Management (Spanner chat_sessions)
 // -------------------------------------------------------------
 
-async function fetchSessions(): Promise<void> {
+async function fetchSessions(){
   try {
     const res = await fetch(`${API_BASE_URL}/api/sessions`, {
       method: 'GET',
@@ -195,7 +178,7 @@ async function fetchSessions(): Promise<void> {
   renderSessionList();
 }
 
-function loadFallbackSessions(): void {
+function loadFallbackSessions(){
   sessionList = [
     {
       session_id: 'sess_egfr_lung_default',
@@ -221,7 +204,7 @@ function loadFallbackSessions(): void {
   ];
 }
 
-function renderSessionList(filterQuery: string = ''): void {
+function renderSessionList(filterQuery = ''){
   sessionListContainer.innerHTML = '';
 
   const filtered = sessionList.filter((s) =>
@@ -265,7 +248,7 @@ function renderSessionList(filterQuery: string = ''): void {
   }
 }
 
-function switchSession(sessionId: string): void {
+function switchSession(sessionId){
   currentSessionId = sessionId;
   renderSessionList(sessionSearchInput.value);
 
@@ -285,9 +268,9 @@ function switchSession(sessionId: string): void {
   syncTelemetryHUD();
 }
 
-function createNewSession(): void {
+function createNewSession(){
   const newId = `sess_${Date.now().toString(36)}`;
-  const newSession: ChatSession = {
+  const newSession = {
     session_id: newId,
     title: 'New Clinical Case Inquiry',
     created_at: new Date().toISOString(),
@@ -303,7 +286,7 @@ function createNewSession(): void {
 // 3. Conversation Timeline & Inquiry Execution
 // -------------------------------------------------------------
 
-function appendChatBubble(role: 'user' | 'assistant', text: string): HTMLElement {
+function appendChatBubble(role, text){
   if (timelineEmptyState && timelineEmptyState.parentElement) {
     timelineEmptyState.remove();
   }
@@ -344,11 +327,11 @@ function appendChatBubble(role: 'user' | 'assistant', text: string): HTMLElement
   return row;
 }
 
-function scrollToBottom(): void {
+function scrollToBottom(){
   workspaceScrollArea.scrollTop = workspaceScrollArea.scrollHeight;
 }
 
-async function executeInquiry(query: string): Promise<void> {
+async function executeInquiry(query){
   // Check auth
   if (!getAuthToken()) {
     showAuthModal();
@@ -393,7 +376,7 @@ async function executeInquiry(query: string): Promise<void> {
       throw new Error(`Server returned status ${response.status}`);
     }
 
-    const payload: A2UISurfacePayload = await response.json();
+    const payload = await response.json();
 
     // Replace pending text
     const bubbleBody = pendingBubbleRow.querySelector('.bubble-body');
@@ -425,7 +408,7 @@ async function executeInquiry(query: string): Promise<void> {
 // 4. Memory Bank Live Sync (PAT-MEM-BANK - DOC-08)
 // -------------------------------------------------------------
 
-async function syncMemoryBank(sessionId: string, latestQuery: string = ''): Promise<void> {
+async function syncMemoryBank(sessionId, latestQuery = ''){
   try {
     const res = await fetch(`${API_BASE_URL}/api/sessions/${sessionId}/memory`, {
       method: 'GET',
@@ -444,7 +427,7 @@ async function syncMemoryBank(sessionId: string, latestQuery: string = ''): Prom
   renderMemoryBankDrawer();
 }
 
-function updateLocalMemoryBank(query: string): void {
+function updateLocalMemoryBank(query){
   const q = query.toLowerCase();
 
   // Dynamically consolidate entities based on conversation query
@@ -511,7 +494,7 @@ function updateLocalMemoryBank(query: string): void {
   memoryBankState.cache_hit_rate_pct = 76.5;
 }
 
-function renderMemoryBankDrawer(): void {
+function renderMemoryBankDrawer(){
   // 1. Variants
   activeVariantsList.innerHTML = '';
   countVariants.textContent = `${memoryBankState.variants.length}`;
@@ -605,7 +588,7 @@ function renderMemoryBankDrawer(): void {
 // 5. Telemetry HUD Sync
 // -------------------------------------------------------------
 
-async function syncTelemetryHUD(): Promise<void> {
+async function syncTelemetryHUD(){
   try {
     const res = await fetch(`${API_BASE_URL}/api/stats/telemetry`, {
       method: 'GET',
@@ -613,7 +596,7 @@ async function syncTelemetryHUD(): Promise<void> {
     });
 
     if (res.ok) {
-      const stats: TelemetryMetrics = await res.json();
+      const stats = await res.json();
       hudLatency.textContent = `p50: ${stats.p50_latency_ms}ms • p95: ${stats.p95_latency_ms}ms`;
       hudTokens.textContent = `${stats.prompt_tokens.toLocaleString()} p • ${stats.completion_tokens.toLocaleString()} c • ${stats.cached_tokens.toLocaleString()} cached`;
       return;
@@ -630,12 +613,12 @@ async function syncTelemetryHUD(): Promise<void> {
 // 6. Fallback A2UI Payload Generation
 // -------------------------------------------------------------
 
-function renderFallbackPayload(query: string): void {
+function renderFallbackPayload(query){
   const q = query.toLowerCase();
 
   // Route 1: Docking & Simulation
   if (q.includes('simulation') || q.includes('docking') || q.includes('alphafold') || q.includes('trajectory')) {
-    const simPayload: A2UISurfacePayload = {
+    const simPayload = {
       type: 'A2UI_SURFACE',
       surface_id: 'surf_sim_docking_fb',
       intent: 'MOLECULAR_SIMULATION',
@@ -701,7 +684,7 @@ function renderFallbackPayload(query: string): void {
 
   // Route 2: Memory Timeline Review
   if (q.includes('timeline') || q.includes('longitudinal') || q.includes('history') || q.includes('memory')) {
-    const memoryPayload: A2UISurfacePayload = {
+    const memoryPayload = {
       type: 'A2UI_SURFACE',
       surface_id: 'surf_memory_timeline_fb',
       intent: 'LONG_TERM_MEMORY_RECALL',
@@ -755,7 +738,7 @@ function renderFallbackPayload(query: string): void {
                   { id: 'hyp_01', statement: 'Disease progression mediated by secondary gatekeeper mutation T790M', status: 'confirmed', confidence: 0.97 },
                   { id: 'hyp_02', statement: 'Osimertinib 3rd-generation covalent binding restores kinase inhibition despite T790M steric hindrance', status: 'confirmed', confidence: 0.96 },
                 ],
-                summary: 'Biopsy and cfDNA NGS confirmed EGFR T790M. Third-generation irreversible TKI Osimertinib indicated as preferred second-line therapy.',
+                summary: 'Biopsy and cfDNA NGS confirmed EGFR T790M. Third-generation irreversible TKI Osimertinib indicated second-line therapy.',
               },
               {
                 turn_number: 3,
@@ -783,7 +766,7 @@ function renderFallbackPayload(query: string): void {
   // Route 3: Drug Repurposing Table
   const isDrugQuery = q.includes('drug') || q.includes('therap') || q.includes('repurpos');
   if (isDrugQuery) {
-    const drugPayload: A2UISurfacePayload = {
+    const drugPayload = {
       type: 'A2UI_SURFACE',
       surface_id: 'surf_drug_repurposing_fb',
       intent: 'DRUG_REPURPOSING',
@@ -841,7 +824,7 @@ function renderFallbackPayload(query: string): void {
   }
 
   // Route 4: Pathway Traversal and Knowledge Graph
-  const pathwayPayload: A2UISurfacePayload = {
+  const pathwayPayload = {
     type: 'A2UI_SURFACE',
     surface_id: 'surf_pathway_fb',
     intent: 'PATHWAY_ANALYSIS',
@@ -900,7 +883,7 @@ function renderFallbackPayload(query: string): void {
 // 7. Event Listeners & Bootstrapping
 // -------------------------------------------------------------
 
-function initEventListeners(): void {
+function initEventListeners(){
   // Inquiry form submit
   inquiryForm?.addEventListener('submit', async (e) => {
     e.preventDefault();
@@ -914,7 +897,7 @@ function initEventListeners(): void {
   // Quick prompt chips
   document.querySelectorAll('.chip-prompt').forEach((btn) => {
     btn.addEventListener('click', async () => {
-      const promptQuery = (btn as HTMLElement).dataset.query;
+      const promptQuery = (btn).dataset.query;
       if (promptQuery) {
         await executeInquiry(promptQuery);
       }
@@ -949,6 +932,101 @@ function initEventListeners(): void {
 
   btnLogout?.addEventListener('click', () => {
     clearAuth();
+  });
+
+  // PrimeKG Explorer Action
+  btnPrimekgExplorer?.addEventListener('click', async () => {
+    try {
+      btnPrimekgExplorer.textContent = '⏳ Loading PrimeKG...';
+      btnPrimekgExplorer.disabled = true;
+
+      const resp = await fetch(`${API_BASE_URL}/api/primekg/explore?focal_entity=EGFR&depth=2`);
+      if (!resp.ok) {
+        throw new Error(`HTTP error ${resp.status}`);
+      }
+      const payload = await resp.json();
+
+      // Render into A2UI Surface in the main workspace
+      renderer.renderSurface(payload);
+
+      // Add conversational bubble in chat timeline
+      appendChatBubble(
+        'assistant',
+        '🧬 PrimeKG Property Graph loaded into workspace! Visualizing 360° topology around EGFR from Cloud Spanner (11 entities across Genes, Drugs, Diseases, Pathways). You can zoom, pan, drag nodes, and click on nodes to inspect target details.'
+      );
+
+      // Smooth scroll to canvas
+      surfaceElement?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    } catch (err) {
+      console.error('Failed to load PrimeKG Explorer:', err);
+      alert('Failed to load PrimeKG Explorer: ' + err.message);
+    } finally {
+      btnPrimekgExplorer.textContent = '🧬 PrimeKG Explorer';
+      btnPrimekgExplorer.disabled = false;
+    }
+  });
+
+  // Welcome banner direct cards
+  const cardPrimekg = document.getElementById('card-launch-primekg');
+  const cardTelemetry = document.getElementById('card-launch-telemetry');
+  cardPrimekg?.addEventListener('click', () => btnPrimekgExplorer?.click());
+  cardTelemetry?.addEventListener('click', () => btnTelemetryDashboard?.click());
+
+  // Observability & Telemetry Dashboard Modal
+  btnTelemetryDashboard?.addEventListener('click', async () => {
+    telemetryModal.style.display = 'flex';
+    try {
+      const resp = await fetch(`${API_BASE_URL}/api/stats/telemetry`);
+      if (resp.ok) {
+        const data = await resp.json();
+        if (data.latency_ms) {
+          const p50El = document.getElementById('obs-p50');
+          const p95El = document.getElementById('obs-p95');
+          const p99El = document.getElementById('obs-p99');
+          const avgEl = document.getElementById('obs-avg');
+          if (p50El) p50El.textContent = `${data.latency_ms.p50} ms`;
+          if (p95El) p95El.textContent = `${data.latency_ms.p95} ms`;
+          if (p99El) p99El.textContent = `${data.latency_ms.p99} ms`;
+          if (avgEl) avgEl.textContent = `${data.latency_ms.avg} ms`;
+        }
+        if (data.token_consumption) {
+          const ptEl = document.getElementById('obs-prompt-tokens');
+          const ctEl = document.getElementById('obs-completion-tokens');
+          const cktEl = document.getElementById('obs-cached-tokens');
+          const crEl = document.getElementById('obs-cache-rate');
+          if (ptEl) ptEl.textContent = data.token_consumption.prompt_tokens.toLocaleString();
+          if (ctEl) ctEl.textContent = data.token_consumption.completion_tokens.toLocaleString();
+          if (cktEl) cktEl.textContent = data.token_consumption.cached_tokens.toLocaleString();
+          if (crEl) crEl.textContent = `${(data.token_consumption.cache_hit_rate * 100).toFixed(1)}%`;
+        }
+        if (data.quality_metrics) {
+          const acEl = document.getElementById('obs-algo-choice');
+          const mapEl = document.getElementById('obs-map');
+          const precEl = document.getElementById('obs-precision');
+          const recEl = document.getElementById('obs-recall');
+          if (acEl) acEl.textContent = `${(data.quality_metrics.algorithm_choice_accuracy * 100).toFixed(1)}%`;
+          if (mapEl) mapEl.textContent = `${data.quality_metrics.retrieval_map}`;
+          if (precEl) precEl.textContent = `${data.quality_metrics.precision_at_k}`;
+          if (recEl) recEl.textContent = `${data.quality_metrics.recall_at_k}`;
+        }
+      }
+    } catch (err) {
+      console.error('Failed to refresh telemetry:', err);
+    }
+  });
+
+  telemetryModalClose?.addEventListener('click', () => {
+    telemetryModal.style.display = 'none';
+  });
+
+  btnCloseTelemetry?.addEventListener('click', () => {
+    telemetryModal.style.display = 'none';
+  });
+
+  telemetryModal?.addEventListener('click', (e) => {
+    if (e.target === telemetryModal) {
+      telemetryModal.style.display = 'none';
+    }
   });
 
   authModalClose?.addEventListener('click', () => {
@@ -998,7 +1076,7 @@ function initEventListeners(): void {
         setAuthToken(data.access_token, {
           email: data.user.email,
           name: data.user.full_name || email,
-          role: data.user.roles && data.user.roles[0] ? data.user.roles[0].charAt(0).toUpperCase() + data.user.roles[0].slice(1) : role,
+          role: (data.user.roles && data.user.roles[0]) ? (data.user.roles[0].charAt(0).toUpperCase() + data.user.roles[0].slice(1)) : 'Clinician',
           institution: 'Memorial Sloan Kettering Cancer Center',
         });
         authMessage.textContent = isRegister ? 'Registered and authenticated!' : 'Authenticated successfully!';
@@ -1017,7 +1095,7 @@ function initEventListeners(): void {
       const nameParts = email.split('@')[0].split('.');
       const formattedName = nameParts.map((p) => p.charAt(0).toUpperCase() + p.slice(1)).join(' ');
 
-      const user: UserProfile = {
+      const user = {
         email,
         name: formattedName ? `Dr. ${formattedName}` : 'Dr. Attending Oncologist',
         role,
@@ -1055,7 +1133,7 @@ function initEventListeners(): void {
     }
 
     const demoToken = 'zaa_jwt_demo_clinician_98472';
-    const demoUser: UserProfile = {
+    const demoUser = {
       email: 'clinician@cancercenter.org',
       name: 'Dr. Sarah Chen, MD',
       role: 'Clinician',
@@ -1071,7 +1149,7 @@ function initEventListeners(): void {
 // 8. Application Initialization
 // -------------------------------------------------------------
 
-async function initApp(): Promise<void> {
+async function initApp(){
   // Check stored auth
   if (!getAuthToken()) {
     // Attempt login with default seeded credentials or seed local demo
@@ -1111,11 +1189,29 @@ async function initApp(): Promise<void> {
   setInterval(() => {
     syncTelemetryHUD();
   }, 15000);
+
+  // Handle URL hash or search params for deep linking from GEA
+  function handleDeepLinks() {
+    const hash = window.location.hash || '';
+    const searchParams = new URLSearchParams(window.location.search);
+    if (hash.includes('view=primekg') || searchParams.get('view') === 'primekg') {
+      setTimeout(() => {
+        btnPrimekgExplorer?.click();
+      }, 300);
+    } else if (hash.includes('view=telemetry') || searchParams.get('view') === 'telemetry') {
+      setTimeout(() => {
+        btnTelemetryDashboard?.click();
+      }, 300);
+    }
+  }
+
+  handleDeepLinks();
+  window.addEventListener('hashchange', handleDeepLinks);
 }
 
-function seedLocalDemoUser(): void {
+function seedLocalDemoUser(){
   const demoToken = 'zaa_jwt_demo_clinician_98472';
-  const demoUser: UserProfile = {
+  const demoUser = {
     email: 'clinician@cancercenter.org',
     name: 'Dr. Sarah Chen, MD',
     role: 'Clinician',

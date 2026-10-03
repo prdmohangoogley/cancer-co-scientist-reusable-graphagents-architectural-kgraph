@@ -35,11 +35,12 @@ class UserCredentials(BaseModel):
     """User login / registration credentials."""
     email: Optional[str] = Field(default=None, description="User corporate or institutional email")
     username: Optional[str] = Field(default=None, description="Optional username alias")
+    identifier_field: Optional[str] = Field(default=None, alias="identifier", description="User email or username")
     password: str = Field(..., min_length=4, description="Password")
 
     @property
     def identifier(self) -> str:
-        val = self.email or self.username
+        val = self.identifier_field or self.email or self.username
         if not val:
             raise ValueError("Either email or username must be provided")
         return val.lower().strip()

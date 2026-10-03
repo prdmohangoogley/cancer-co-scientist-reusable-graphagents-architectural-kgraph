@@ -1,0 +1,11 @@
+steps:
+  - name: 'python:3.11-slim'
+    entrypoint: 'bash'
+    args:
+      - '-c'
+      - |
+        pip install --no-cache-dir "google-cloud-aiplatform[agent_engines]>=1.50.0" cloudpickle pydantic
+        python deploy_gea_engine.py
+timeout: '1200s'
+options:
+  logging: CLOUD_LOGGING_ONLY
