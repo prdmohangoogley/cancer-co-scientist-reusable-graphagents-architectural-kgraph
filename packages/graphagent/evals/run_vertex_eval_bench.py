@@ -184,6 +184,16 @@ def run_evaluation_bench(verbose: bool = True) -> Dict[str, Any]:
                 "cache_hit_rate_pct": float(summary["token_economy"]["cache_hit_rate_pct"]),
             })
         print(f"✅ Successfully logged run '{run_name}' to Vertex AI Experiment 'cancer-co-scientist-evaluation'!")
+        
+        # Register into the 4 GEA Categorized Experiment Suites (Spec 12 / Task 4)
+        try:
+            from packages.graphagent.evals.register_gea_experiments import register_all_categorized_experiments
+            cat_runs = register_all_categorized_experiments(run_name_prefix=f"eval-{int(time.time())}")
+            print(f"✅ Successfully logged runs to all 4 GEA Categorized Experiment suites:")
+            for cat, c_run in cat_runs.items():
+                print(f"    • {cat} -> {c_run}")
+        except Exception as e_cat:
+            print(f"⚠️ Could not register categorized experiments: {e_cat}")
     except Exception as e:
         print(f"⚠️ Could not log to Vertex AI Experiments: {e}")
 

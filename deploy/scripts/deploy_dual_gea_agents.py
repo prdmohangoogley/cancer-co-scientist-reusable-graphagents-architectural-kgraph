@@ -60,11 +60,18 @@ def tool_span(name: str, category: str = "Discrete", **attributes):
             span.set_attribute("gen_ai.tool.duration", elapsed_ms / 1000.0)
             span.set_attribute("telemetry.latency_ms", elapsed_ms)
 
+try:
+    from observability.telemetry import trace_tool
+except ImportError:
+    from packages.graphagent.observability.telemetry import trace_tool
+
 COMMON_REQUIREMENTS = [
     "google-adk>=2.10.0",
+    "opentelemetry-api>=1.26.0",
+    "opentelemetry-sdk>=1.26.0",
+    "opentelemetry-exporter-gcp-trace>=1.6.0",
+    "opentelemetry-exporter-gcp-monitoring>=1.6.0",
     "opentelemetry-instrumentation-google-genai<=1.1b0",
-    "opentelemetry-exporter-gcp-trace>=1.7.0",
-    "opentelemetry-exporter-gcp-monitoring>=1.15.0a0",
     "google-cloud-aiplatform>=2.3.0",
     "google-genai>=2.26.0",
     "pydantic>=2.0.0",
@@ -76,6 +83,47 @@ COMMON_REQUIREMENTS = [
 # 1. GRAPH AGENT ATOMIC TOOLS (Worker Tier)
 # =============================================================================
 
+@trace_tool("execute_discrete_graph_algorithm")
+def execute_discrete_graph_algorithm(
+    algorithm_name: str = "dijkstra",
+    source_entity: str = "EGFR",
+    target_entity: str = "Osimertinib",
+    parameters: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
+    """Executes a discrete graph algorithm (Dijkstra, A*, BFS/DFS, WCC, or Topological Sort)."""
+    return execute_graph_algorithm(algorithm_name, source_entity, target_entity, parameters)
+
+
+@trace_tool("explore_target_subgraph_neighborhood")
+def explore_target_subgraph_neighborhood(
+    focal_entity: str = "EGFR",
+    depth: int = 2,
+    relation_filter: str = "",
+) -> Dict[str, Any]:
+    """Explores the multi-hop interaction subgraph neighborhood of a focal genomic or clinical entity."""
+    return query_primekg_graph(source_entity=focal_entity, relation_type=relation_filter, depth=depth)
+
+
+@trace_tool("analyze_structural_centrality_gatekeepers")
+def analyze_structural_centrality_gatekeepers(
+    target_subnetwork: str = "TP53",
+    algorithm: str = "pagerank",
+) -> Dict[str, Any]:
+    """Analyzes node centrality, identifying critical driver hubs and gatekeeper bottlenecks."""
+    return run_structural_analytics(algorithm_name=algorithm, target_entity=target_subnetwork)
+
+
+@trace_tool("validate_precision_oncology_pathway")
+def validate_precision_oncology_pathway(
+    biomarker: str = "EGFR T790M",
+    therapeutic_agent: str = "Osimertinib",
+    disease_indication: str = "Non-Small Cell Lung Cancer",
+) -> Dict[str, Any]:
+    """Validates precision oncology evidence levels and clinical guidelines for biomarker-drug pairings."""
+    return verify_oncology_guidelines(biomarker=biomarker, therapeutic_agent=therapeutic_agent, disease_indication=disease_indication)
+
+
+@trace_tool("query_primekg_graph")
 def query_primekg_graph(
     source_entity: str,
     target_entity: str = "",
@@ -299,6 +347,10 @@ When invoked, select and execute the requested graph algorithm from the 15-algor
 - Therapy resistance dynamics: Temporal Interval Edges / Algebraic Connectivity
 Ground all results in graph data and return structured metrics and visited nodes.""",
         tools=[
+            execute_discrete_graph_algorithm,
+            explore_target_subgraph_neighborhood,
+            analyze_structural_centrality_gatekeepers,
+            validate_precision_oncology_pathway,
             query_primekg_graph,
             execute_graph_algorithm,
             run_discrete_traversal,

@@ -3,8 +3,9 @@
 **Milestone**: Phase 10 — GCP GEA Platform Console Operationalization & Multi-Agent Continuous Governance  
 **Status**: APPROVED & ARCHITECTED  
 **Governing Architecture MCP**: [gea-agents-arch-guidelines-mcp-server](https://github.com/prdmohangoogley/gea-agents-arch-guidelines-mcp-server)  
-**Target GCP Project**: `fivedaysai-prd-sandbox-317383` (Region: `us-east1` & `us-central1`)  
-**Deployed Reasoning Engine Resource**: `projects/301802433103/locations/us-east1/reasoningEngines/7288443777713176576`  
+**Target GCP Project**: `fivedaysai-prd-sandbox-317383` (Region: `us-east1`)  
+**Deployed Agent Engine Resource**: `projects/301802433103/locations/us-east1/agentEngines/4359942935643422720` (`cancer-co-scientist-graph-agent`)  
+**Deployed Lead Orchestrator Resource**: `projects/301802433103/locations/us-east1/reasoningEngines/7288443777713176576` (`cancer-co-scientist-lead-orchestrator`)  
 **Guidelines Cited**: 
 - `DOC-01`: AI Agent Quality Engineering, Observability & Evaluation Benchmarks
 - `DOC-02`: Zero Ambient Authority (ZAA) & Agentic SecOps
@@ -150,29 +151,30 @@ The Agent exposes atomic callable tools surfaced directly in the GCP Console Too
 ## 4. Cloud Trace & Cloud Monitoring Telemetry (Metrics & Traces Tabs)
 
 ### 4.1 Cloud Trace Exporter Configuration & GenAI Span Hierarchy
-Spans are emitted using `opentelemetry-exporter-gcp-trace` with explicit resource attributes linking them directly to the Reasoning Engine instance:
-- `service.name`: `cancer-co-scientist-lead-orchestrator` and `cancer-co-scientist-graph-agent`
-- `aiplatform.googleapis.com/ReasoningEngine`: Reasoning Engine ID (`7288443777713176576` / worker ID)
-- `cloud.region`: `us-east1`
-- `gcp.project_id`: `fivedaysai-prd-sandbox-317383`
+Spans are emitted using `opentelemetry-exporter-gcp-trace` with explicit monitored resource attributes linking them directly to the Vertex AI Agent Engine / Reasoning Engine instance in GCP:
+- `gcp.resource_type`: `"aiplatform.googleapis.com/ReasoningEngine"`
+- `aiplatform.googleapis.com/reasoning_engine_id`: `"4359942935643422720"` (Agent Engine Worker) and `"7288443777713176576"` (Lead Orchestrator)
+- `service.name`: `"cancer-co-scientist-graph-agent"` (Worker) and `"cancer-co-scientist-lead-orchestrator"` (Orchestrator)
+- `cloud.region`: `"us-east1"`
+- `gcp.project_id`: `"fivedaysai-prd-sandbox-317383"`
 
-Span hierarchy follows **DOC-01**:
+Span hierarchy follows **DOC-01** & OpenTelemetry GenAI Semantic Conventions:
 1. `agent.run`: Captures end-to-end turn with attributes `agent.name`, `agent.version`, `session.id`, `user.id`.
-2. `llm.generate`: Captures model calls with attributes `gen_ai.system="vertexai"`, `gen_ai.request.model`, `gen_ai.response.model`, `gen_ai.usage.prompt_tokens`, `gen_ai.usage.completion_tokens`.
-3. `tool.execute`: Captures tool dispatches with attributes `tool.name`, parameters, status, and duration.
-4. `agent.transfer`: Captures A2A task delegation from Lead Orchestrator to Graph Agent with `traceparent` context propagation.
+2. `llm.generate` / `gen_ai.client.operation`: Captures model calls with attributes `gen_ai.system="vertexai"`, `gen_ai.request.model`, `gen_ai.response.model`, `gen_ai.usage.prompt_tokens`, `gen_ai.usage.completion_tokens`.
+3. `tool.execute` / `gen_ai.tool.name`: Captures tool dispatches with attributes `gen_ai.tool.name` (`execute_discrete_graph_algorithm`, `explore_target_subgraph_neighborhood`, etc.), parameters, status, and duration.
+4. `agent.transfer`: Captures A2A task delegation from Lead Orchestrator to Graph Agent with W3C `traceparent` context propagation.
 
 ### 4.2 ADK >= v2.6.0 OpenTelemetry GenAI Semantic Metrics (Console Charts)
-The GCP Agent Platform / Agent Registry Observability dashboard charts are populated directly from OpenTelemetry metrics emitted by ADK >= v2.6.0 conforming to GenAI Semantic Conventions:
+The GCP Agent Platform / Agent Engine Observability dashboard charts are populated directly from OpenTelemetry metrics emitted by ADK >= v2.6.0 conforming to standard GenAI Semantic Conventions:
 
 | Console Chart / Card | OTel Metric Instrument | Metric Kind & Unit | Attributes / Dimensions |
 | :--- | :--- | :--- | :--- |
-| **Model Calls** | `gen_ai.client.operation.duration` / `gen_ai.client.inference` | Histogram (seconds / ms) | `gen_ai.request.model`, `gen_ai.response.model`, `gen_ai.system` |
-| **P95 Duration by Model** | `gen_ai.client.operation.duration` | Histogram | `gen_ai.request.model` (`gemini-1.5-pro`, `gemini-2.0-flash`) |
+| **Model Calls** | `gen_ai.client.operation.duration` | Histogram (seconds) | `gen_ai.request.model`, `gen_ai.response.model`, `gen_ai.system="vertexai"` |
+| **P95 Duration by Model** | `gen_ai.client.operation.duration` | Histogram (seconds) | `gen_ai.request.model` (`gemini-2.5-flash`, `gemini-1.5-pro`) |
 | **Token Usage (Prompt/Output)** | `gen_ai.client.token.usage` | Histogram / Counter (tokens) | `gen_ai.token.type` (`input`, `output`), `gen_ai.request.model` |
-| **Invocations** | `agent.invocations` / `agent.run` count | Cumulative Counter | `agent.name`, `status` (`success`, `error`) |
-| **Sessions & Avg Turns** | `agent.sessions` & `agent.turns` | Counter / Gauge | `session.id`, `user.id` |
-| **Tool Execution Activity** | `tool.executions` & `tool.latency` | Counter & Histogram | `tool.name` (`query_primekg_graph`, `execute_graph_algorithm`, etc.) |
+| **Invocations** | `gen_ai.server.request.duration` / `agent.invocations` | Cumulative Counter | `agent.name`, `status` (`success`, `error`), `http.response.status_code` |
+| **Sessions & Avg Turns** | `agent.sessions` & `agent.turns` | Counter / Gauge | `session.id`, `user.id`, `agent.turn_count` |
+| **Tool Execution Activity (Tools Tab)** | `gen_ai.tool.duration` & `gen_ai.tool.call_count` | Counter & Histogram | `gen_ai.tool.name` (`execute_discrete_graph_algorithm`, `explore_target_subgraph_neighborhood`, `analyze_structural_centrality_gatekeepers`, `validate_precision_oncology_pathway`) |
 
 ### 4.3 Custom Cloud Monitoring Metrics
 Custom metrics provisioned under `custom.googleapis.com/agent/`:
@@ -191,31 +193,37 @@ Custom metrics provisioned under `custom.googleapis.com/agent/`:
 
 ## 5. Vertex AI Rapid Evaluation Bench (Evaluation Tab)
 
-Adhering to `DOC-01` (`AI Agent Quality Engineering`):
-- **Script**: `packages/graphagent/evals/run_vertex_eval_bench.py`
-- **Benchmarking Suite**: Golden evaluation dataset containing 15 multi-hop precision oncology cases spanning:
-  1. *Discrete*: EGFR T790M resistance path (Dijkstra), BRAF V600E signaling cascade (BFS/DFS), BRCA1 synthetic lethality module (SCC/WCC).
-  2. *Structural*: TP53 hub centrality (PageRank), KRAS-PIK3CA pathway bottleneck (Betweenness), Dense oncogenic complex (Subgraph Density).
-  3. *Continuous*: KRAS G12D molecular docking path (OMPL RRT*), Glioblastoma hypoxic core invasion (PhysiCell Boids).
-  4. *Temporal*: Osimertinib resistance timeline (Interval Edges), Chemo-resistance spectral partition (Algebraic Connectivity $\lambda_2$).
+Adhering to `DOC-01` (`AI Agent Quality Engineering`) and expanded in **Spec 12**:
+- **Script**: `packages/graphagent/evals/run_vertex_eval_bench.py` and `packages/graphagent/evals/register_gea_experiments.py`
+- **Categorized Experiment Structure in GEA Dashboard**:
+  Experiments are partitioned and formally registered into the Vertex AI Experiments API under four distinct categories:
+  1. `graph-agent-discrete-algorithms`: Dijkstra, A*, D* Lite, BFS/DFS, WCC/SCC, Topological Sort, Transitive Closure, Community Detection, Ego-Network.
+  2. `graph-agent-structural-centrality`: PageRank Hubs, Betweenness Gatekeepers, Density, Bridges.
+  3. `graph-agent-continuous-simulation`: OMPL RRT* AlphaFold docking, PhysiCell microenvironment simulation.
+  4. `graph-agent-temporal-omics`: Interval-Timestamped Edges, Algebraic Connectivity $\lambda_2$, Precision Oncology Pathway Validation.
 - **Evaluated Metrics**:
   - `groundedness`: Verification that facts in response exist in Spanner PrimeKGGraph.
-  - `question_answering_quality`: Evaluated by calibrated LLM judge (`gemini-1.5-pro`).
+  - `question_answering_quality`: Evaluated by calibrated LLM judge (`gemini-2.5-flash` / `gemini-1.5-pro`).
   - `agent.correct_algorithm_choice`: Proportion of inquiries correctly routed to the optimal algorithm ($\ge 95\%$).
   - `latency_sla_compliance`: Verification that p50 < 45ms and p95 < 350ms.
-- **Reporting**: Results are recorded directly as evaluation experiments in Vertex AI Model / Agent Evaluation, populating the GCP GEA Console Evaluation tab.
+- **Reporting & Registration Contract**:
+  Runs are registered via `google.cloud.aiplatform.init(experiment=...)` and logged using `aiplatform.start_run()`, directly populating the **Evaluation Tab -> Experiments** list in the GEA console.
 
 ---
 
 ## 6. Native GEA Memory Bank Integration (Memories Tab)
 
 Adhering to `DOC-08` and `DOC-09`:
-- The Reasoning Engine integrates with the **Vertex AI Memory Bank** service (`VertexAiMemoryBankService`).
-- For each interaction, the engine extracts:
-  1. **Entities**: Genomic alterations (e.g. `EGFR T790M`, `BRAF V600E`), drugs (e.g. `Osimertinib`, `Dabrafenib`), and cancer phenotypes (e.g. `Non-Small Cell Lung Carcinoma`).
+- The Agent integrates directly with the **Vertex AI Agent Engine Memory Bank REST API**:
+  - Endpoint: `https://us-east1-aiplatform.googleapis.com/v1beta1/projects/301802433103/locations/us-east1/agentEngines/4359942935643422720/memories`
+  - Operations:
+    1. **Create Memory**: Writes extracted clinical entities and hypotheses directly to the Agent Engine runtime.
+    2. **Generate Memories (LRO)**: Dispatches `memories:generate` post-session consolidation, populating the *Generate memories token count* and *Memory LRO latency* charts.
+    3. **Retrieve Memories**: Invocations during clinical query turns call `memories:retrieve`, populating the *Retrieved memories count* and *Memory mutation count* metrics.
+- Persisted clinical data:
+  1. **Entities**: Genomic alterations (e.g. `EGFR T790M`, `BRAF V600E`, `KRAS G12D`), drugs (e.g. `Osimertinib`, `Dabrafenib`), and cancer phenotypes (e.g. `Non-Small Cell Lung Carcinoma`, `Cutaneous Melanoma`).
   2. **Hypotheses**: Actionable therapeutic assertions (e.g. *"Osimertinib overcomes T790M-mediated gatekeeper resistance by covalently binding to Cys797"*).
-- Entities and hypotheses are tagged with `session_id`, `confidence_score`, and timestamp.
-- The GCP GEA Console Memories tab surfaces active entities and persistent facts across conversation turns.
+- Entities and hypotheses are tagged with `session_id`, `user_id`, `entity_type`, and timestamp, populating both the active facts list and time-series telemetry charts in the GEA Memories tab.
 
 ---
 

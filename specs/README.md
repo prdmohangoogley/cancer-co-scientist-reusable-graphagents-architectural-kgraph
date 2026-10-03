@@ -33,7 +33,7 @@ Per project requirements, **every specification in this directory must align wit
 | [09-gemini-enterprise-agents-deployment-spec.md](./09-gemini-enterprise-agents-deployment-spec.md) | **Active** | Phase 9 Gemini Enterprise Agents Production Deployment, Vertex AI Agent Engine & Cloud Observability |
 | [10-gea-console-observability-evals-memorybank-spec.md](./10-gea-console-observability-evals-memorybank-spec.md) | **Active** | Phase 10 GEA Console Dashboard Operationalization, Interactive Playground, Vertex AI Evaluation Bench, Memory Bank & Continuous Multi-Agent Monitors |
 | [11-a2a-protocol-mesh-agent-card-federation-spec.md](./11-a2a-protocol-mesh-agent-card-federation-spec.md) | **Active** | Phase 11 A2A Protocol Mesh, Agent Card Federation & Dual GEA Runtime Integration |
-| [12-zero-telemetry-remediation-spec.md](./12-zero-telemetry-remediation-spec.md) | **Active** | Phase 12 Zero-Telemetry Remediation, Native Observability, Cloud Trace/Monitoring Exporters, Native Memory Bank & Vertex AI Evaluation API |
+| [12-gea-categorized-experiments-and-live-bench-spec.md](./12-gea-categorized-experiments-and-live-bench-spec.md) | **Active** | Phase 12 GEA Console Categorized Evaluation Experiments, Live Multi-Turn Benchmark Suite, Distributed Tracing & Memory Bank Telemetry |
 
 ---
 

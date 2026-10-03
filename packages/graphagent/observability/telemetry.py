@@ -72,6 +72,21 @@ _GENAI_OPERATION_DURATION = _METER.create_histogram(
     unit="s",
     description="Measures the duration of GenAI client operations",
 )
+_GENAI_SERVER_REQUEST_DURATION = _METER.create_histogram(
+    name="gen_ai.server.request.duration",
+    unit="s",
+    description="Measures incoming server request duration in seconds",
+)
+_GENAI_TOOL_DURATION = _METER.create_histogram(
+    name="gen_ai.tool.duration",
+    unit="s",
+    description="Duration of tool execution in seconds",
+)
+_GENAI_TOOL_CALL_COUNT = _METER.create_counter(
+    name="gen_ai.tool.call_count",
+    unit="{call}",
+    description="Total tool call invocations",
+)
 _AGENT_INVOCATIONS_COUNTER = _METER.create_counter(
     name="agent.invocations",
     unit="{invocation}",
@@ -120,6 +135,7 @@ def init_telemetry(service_name: str = "cancer-co-scientist-lead-orchestrator") 
 
         resource = Resource.create({
             "service.name": service_name,
+            "service.namespace": "vertex-agent-engine",
             "service.version": "2.6.0",
             "deployment.environment": os.getenv("ENVIRONMENT", "production"),
             "cloud.provider": "gcp",
@@ -127,9 +143,12 @@ def init_telemetry(service_name: str = "cancer-co-scientist-lead-orchestrator") 
             "cloud.region": region,
             "gcp.project_id": project_id,
             "gcp.resource_container": f"projects/{project_number}",
+            "gcp.resource_type": "aiplatform.googleapis.com/ReasoningEngine",
+            "aiplatform.googleapis.com/reasoning_engine_id": reasoning_engine_id,
+            "aiplatform.googleapis.com/location": region,
             "aiplatform.googleapis.com/ReasoningEngine": f"projects/{project_number}/locations/{region}/reasoningEngines/{reasoning_engine_id}",
             "reasoning_engine_id": reasoning_engine_id,
-            "gen_ai.system": "gemini",
+            "gen_ai.system": "vertexai",
             "gen_ai.request.model": "gemini-2.5-flash",
         })
 
@@ -591,46 +610,158 @@ def trace_span(
             record_latency(name, elapsed_ms, attributes=rec_attrs)
 
 
+def record_tool_metrics(tool_name: str, duration_s: float, status: str = "success") -> None:
+    """Record tool duration and call count to OTel and Cloud Monitoring."""
+    attrs = {
+        "gen_ai.tool.name": tool_name,
+        "gen_ai.system": "vertexai",
+        "status": status,
+    }
+    try:
+        _GENAI_TOOL_DURATION.record(duration_s, attributes=attrs)
+        _GENAI_TOOL_CALL_COUNT.add(1, attributes=attrs)
+    except Exception as e:
+        logger.debug(f"Failed to record tool OTel metric: {e}")
+
+    try:
+        emit_cloud_monitoring_metric(
+            f"agent/tool/{tool_name}/duration_ms",
+            duration_s * 1000.0,
+            labels={"tool_name": tool_name, "status": status},
+        )
+        emit_cloud_monitoring_metric(
+            f"agent/tool/{tool_name}/calls",
+            1.0,
+            labels={"tool_name": tool_name, "status": status},
+        )
+    except Exception as e:
+        logger.debug(f"Failed to emit Cloud Monitoring tool metrics: {e}")
+
+
 def trace_tool(
+    tool_name_or_func: Any = None,
     name: Optional[str] = None,
     workflow_type: str = "Discrete",
     db_target: Optional[str] = None,
 ) -> Callable:
-    """Decorator to trace tool and agent method executions with standard GenAI conventions."""
-    def decorator(func: Callable) -> Callable:
-        span_name = name or func.__name__
+    """Decorator to trace tool execution creating standard gen_ai.tool.{tool_name} span."""
+    def make_decorator(tool_identifier: str) -> Callable:
+        span_name = f"gen_ai.tool.{tool_identifier}" if not tool_identifier.startswith("gen_ai.tool.") else tool_identifier
 
-        @functools.wraps(func)
-        async def async_wrapper(*args: Any, **kwargs: Any) -> Any:
-            t0 = time.time()
-            with trace_span(span_name, workflow_type=workflow_type, db_target=db_target) as span:
-                span.set_attribute("gen_ai.tool.name", span_name)
-                res = await func(*args, **kwargs)
-                elapsed_ms = round((time.time() - t0) * 1000, 2)
-                span.set_attribute("telemetry.algorithm.latency_ms", elapsed_ms)
-                if hasattr(res, "metrics") and isinstance(res.metrics, dict):
-                    if "latency_ms" not in res.metrics:
-                        res.metrics["latency_ms"] = elapsed_ms
-                return res
+        def decorator(func: Callable) -> Callable:
+            @functools.wraps(func)
+            async def async_wrapper(*args: Any, **kwargs: Any) -> Any:
+                tracer = get_tracer()
+                t0 = time.time()
+                with tracer.start_as_current_span(
+                    span_name,
+                    attributes={
+                        "gen_ai.tool.name": tool_identifier,
+                        "gen_ai.system": "vertexai",
+                        "gcp.vertex.agent.workflow_type": workflow_type,
+                    },
+                ) as span:
+                    try:
+                        res = await func(*args, **kwargs)
+                        span.set_attribute("gen_ai.tool.status", "success")
+                        elapsed_s = max(0.001, time.time() - t0)
+                        elapsed_ms = round(elapsed_s * 1000.0, 2)
+                        span.set_attribute("gen_ai.tool.duration", elapsed_s)
+                        span.set_attribute("telemetry.algorithm.latency_ms", elapsed_ms)
+                        record_latency(
+                            tool_identifier,
+                            elapsed_ms,
+                            attributes={
+                                "workflow_type": workflow_type,
+                                "db_target": db_target or "unknown",
+                                "gen_ai.tool.name": tool_identifier,
+                            },
+                        )
+                        record_tool_metrics(tool_identifier, elapsed_s, status="success")
+                        if hasattr(res, "metrics") and isinstance(res.metrics, dict):
+                            if "latency_ms" not in res.metrics:
+                                res.metrics["latency_ms"] = elapsed_ms
+                        return res
+                    except Exception as e:
+                        span.set_attribute("gen_ai.tool.status", "error")
+                        span.record_exception(e)
+                        elapsed_s = max(0.001, time.time() - t0)
+                        elapsed_ms = round(elapsed_s * 1000.0, 2)
+                        record_latency(
+                            tool_identifier,
+                            elapsed_ms,
+                            attributes={
+                                "workflow_type": workflow_type,
+                                "db_target": db_target or "unknown",
+                                "gen_ai.tool.name": tool_identifier,
+                                "error": True,
+                            },
+                        )
+                        record_tool_metrics(tool_identifier, elapsed_s, status="error")
+                        raise
 
-        @functools.wraps(func)
-        def sync_wrapper(*args: Any, **kwargs: Any) -> Any:
-            t0 = time.time()
-            with trace_span(span_name, workflow_type=workflow_type, db_target=db_target) as span:
-                span.set_attribute("gen_ai.tool.name", span_name)
-                res = func(*args, **kwargs)
-                elapsed_ms = round((time.time() - t0) * 1000, 2)
-                span.set_attribute("telemetry.algorithm.latency_ms", elapsed_ms)
-                if hasattr(res, "metrics") and isinstance(res.metrics, dict):
-                    if "latency_ms" not in res.metrics:
-                        res.metrics["latency_ms"] = elapsed_ms
-                return res
+            @functools.wraps(func)
+            def sync_wrapper(*args: Any, **kwargs: Any) -> Any:
+                tracer = get_tracer()
+                t0 = time.time()
+                with tracer.start_as_current_span(
+                    span_name,
+                    attributes={
+                        "gen_ai.tool.name": tool_identifier,
+                        "gen_ai.system": "vertexai",
+                        "gcp.vertex.agent.workflow_type": workflow_type,
+                    },
+                ) as span:
+                    try:
+                        res = func(*args, **kwargs)
+                        span.set_attribute("gen_ai.tool.status", "success")
+                        elapsed_s = max(0.001, time.time() - t0)
+                        elapsed_ms = round(elapsed_s * 1000.0, 2)
+                        span.set_attribute("gen_ai.tool.duration", elapsed_s)
+                        span.set_attribute("telemetry.algorithm.latency_ms", elapsed_ms)
+                        record_latency(
+                            tool_identifier,
+                            elapsed_ms,
+                            attributes={
+                                "workflow_type": workflow_type,
+                                "db_target": db_target or "unknown",
+                                "gen_ai.tool.name": tool_identifier,
+                            },
+                        )
+                        record_tool_metrics(tool_identifier, elapsed_s, status="success")
+                        if hasattr(res, "metrics") and isinstance(res.metrics, dict):
+                            if "latency_ms" not in res.metrics:
+                                res.metrics["latency_ms"] = elapsed_ms
+                        return res
+                    except Exception as e:
+                        span.set_attribute("gen_ai.tool.status", "error")
+                        span.record_exception(e)
+                        elapsed_s = max(0.001, time.time() - t0)
+                        elapsed_ms = round(elapsed_s * 1000.0, 2)
+                        record_latency(
+                            tool_identifier,
+                            elapsed_ms,
+                            attributes={
+                                "workflow_type": workflow_type,
+                                "db_target": db_target or "unknown",
+                                "gen_ai.tool.name": tool_identifier,
+                                "error": True,
+                            },
+                        )
+                        record_tool_metrics(tool_identifier, elapsed_s, status="error")
+                        raise
 
-        if asyncio_iscoroutinefunction(func):
-            return async_wrapper
-        return sync_wrapper
+            if asyncio_iscoroutinefunction(func):
+                return async_wrapper
+            return sync_wrapper
 
-    return decorator
+        return decorator
+
+    if callable(tool_name_or_func):
+        return make_decorator(tool_name_or_func.__name__)(tool_name_or_func)
+
+    chosen_name = name or tool_name_or_func or "tool"
+    return make_decorator(str(chosen_name))
 
 
 def asyncio_iscoroutinefunction(func: Any) -> bool:

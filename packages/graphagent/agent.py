@@ -31,6 +31,7 @@ try:
         init_telemetry,
         record_genai_metrics,
         trace_span,
+        trace_tool,
     )
 except ImportError:
     from packages.graphagent.adk.agent import PrimeKGWorkerAgent
@@ -40,6 +41,7 @@ except ImportError:
         init_telemetry,
         record_genai_metrics,
         trace_span,
+        trace_tool,
     )
 
 logger = logging.getLogger("cancer_co_scientist_graph_agent")
@@ -232,3 +234,68 @@ class CancerCoScientistGraphAgent:
 
 # Authoritative Root Agent Export conforming to ADK >= v2.6.0 / Reasoning Engine Spec
 root_agent = CancerCoScientistGraphAgent()
+
+
+# =============================================================================
+# Atomic Tools Exported for Vertex AI Agent Engine & Tool Calling
+# =============================================================================
+
+@trace_tool("execute_discrete_graph_algorithm")
+def execute_discrete_graph_algorithm(
+    algorithm_name: str = "dijkstra",
+    source_entity: str = "EGFR",
+    target_entity: str = "Osimertinib",
+    parameters: Optional[dict[str, Any]] = None,
+) -> dict[str, Any]:
+    """Executes a discrete graph algorithm (Dijkstra, A*, BFS/DFS, WCC, or Topological Sort)."""
+    return root_agent.query(
+        input=f"Run {algorithm_name} from {source_entity} to {target_entity}",
+        algorithm_name=algorithm_name,
+        source_entity=source_entity,
+        target_entity=target_entity,
+        parameters=parameters or {},
+    )
+
+
+@trace_tool("explore_target_subgraph_neighborhood")
+def explore_target_subgraph_neighborhood(
+    focal_entity: str = "EGFR",
+    depth: int = 2,
+    relation_filter: str = "",
+) -> dict[str, Any]:
+    """Explores the multi-hop interaction subgraph neighborhood of a focal genomic or clinical entity."""
+    return root_agent.query(
+        input=f"Explore subgraph neighborhood of {focal_entity} with depth {depth}",
+        algorithm_name="bfs_dfs",
+        source_entity=focal_entity,
+        parameters={"depth": depth, "relation_filter": relation_filter},
+    )
+
+
+@trace_tool("analyze_structural_centrality_gatekeepers")
+def analyze_structural_centrality_gatekeepers(
+    target_subnetwork: str = "TP53",
+    algorithm: str = "pagerank",
+) -> dict[str, Any]:
+    """Analyzes node centrality, identifying critical driver hubs and gatekeeper bottlenecks."""
+    return root_agent.query(
+        input=f"Analyze {algorithm} centrality for {target_subnetwork}",
+        algorithm_name=algorithm,
+        target_entity=target_subnetwork,
+    )
+
+
+@trace_tool("validate_precision_oncology_pathway")
+def validate_precision_oncology_pathway(
+    biomarker: str = "EGFR T790M",
+    therapeutic_agent: str = "Osimertinib",
+    disease_indication: str = "Non-Small Cell Lung Cancer",
+) -> dict[str, Any]:
+    """Validates precision oncology evidence levels and clinical guidelines for biomarker-drug pairings."""
+    return root_agent.query(
+        input=f"Validate pathway for {biomarker} and {therapeutic_agent} in {disease_indication}",
+        algorithm_name="dijkstra",
+        source_entity=biomarker,
+        target_entity=therapeutic_agent,
+    )
+

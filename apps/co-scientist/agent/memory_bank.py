@@ -529,17 +529,18 @@ class MemoryBankEngine:
     def sync_to_vertex_memory_bank(
         self,
         session_id: str,
-        user_id: str = "oncology_clinician",
+        user_id: str = "oncologist_clinician",
         reasoning_engine_id: Optional[str] = None,
         project_id: Optional[str] = None,
         location: Optional[str] = None,
     ) -> Dict[str, Any]:
         """Synchronizes consolidated clinical entities and hypotheses to the native Vertex AI Agent Engine Memory Bank.
         
-        Uses google.cloud.aiplatform_v1beta1.MemoryBankServiceClient to populate the console Memories tab.
+        Dual-writes via REST and MemoryBankServiceClient to populate the console Memories tab.
         """
         import os
         proj = project_id or os.getenv("GCP_PROJECT") or os.getenv("GOOGLE_CLOUD_PROJECT") or "fivedaysai-prd-sandbox-317383"
+        proj_num = os.getenv("GCP_PROJECT_NUMBER", "301802433103")
         loc = location or os.getenv("GEA_REGION", "us-east1")
         engine_id = reasoning_engine_id or os.getenv("GEA_REASONING_ENGINE_ID", "4359942935643422720")
 
@@ -548,6 +549,7 @@ class MemoryBankEngine:
 
         synced_count = 0
         errors = []
+        direct_facts = []
 
         try:
             from google.cloud import aiplatform_v1beta1
@@ -566,14 +568,22 @@ class MemoryBankEngine:
                         f"Confidence: {ent.confidence:.2f}. "
                         f"Clinical Attributes: {json.dumps(ent.properties)}"
                     )
+                    scope_dict = {"user_id": user_id, "session_id": session_id, "entity_type": ent.entity_type}
                     memory = aiplatform_v1beta1.Memory(
                         fact=fact_str,
-                        scope={"user_id": user_id, "session_id": session_id, "entity_type": ent.entity_type},
+                        scope=scope_dict,
                     )
                     client.create_memory(parent=parent, memory=memory)
                     synced_count += 1
+                    direct_facts.append(fact_str)
                 except Exception as ex:
-                    errors.append(f"Entity {ent.entity_name}: {ex}")
+                    # Fallback to direct REST call
+                    res_rest = sync_to_agent_engine_memory_bank(fact_str, scope_dict, engine_id, proj_num, loc)
+                    if res_rest.get("status") == "SUCCESS":
+                        synced_count += 1
+                        direct_facts.append(fact_str)
+                    else:
+                        errors.append(f"Entity {ent.entity_name}: {ex}")
 
             # 2. Sync clinical hypotheses
             for hyp in hypotheses:
@@ -582,14 +592,31 @@ class MemoryBankEngine:
                         f"Precision Oncology Hypothesis: {hyp.statement} "
                         f"(Evidence: {hyp.evidence_level}, Status: {hyp.status}, Confidence: {hyp.confidence:.2f})"
                     )
+                    scope_dict = {"user_id": user_id, "session_id": session_id, "evidence_level": hyp.evidence_level}
                     memory = aiplatform_v1beta1.Memory(
                         fact=fact_str,
-                        scope={"user_id": user_id, "session_id": session_id, "evidence_level": hyp.evidence_level},
+                        scope=scope_dict,
                     )
                     client.create_memory(parent=parent, memory=memory)
                     synced_count += 1
+                    direct_facts.append(fact_str)
                 except Exception as ex:
-                    errors.append(f"Hypothesis: {ex}")
+                    res_rest = sync_to_agent_engine_memory_bank(fact_str, scope_dict, engine_id, proj_num, loc)
+                    if res_rest.get("status") == "SUCCESS":
+                        synced_count += 1
+                        direct_facts.append(fact_str)
+                    else:
+                        errors.append(f"Hypothesis: {ex}")
+
+            # 3. Trigger post-session consolidation LRO if memories were added
+            if direct_facts:
+                trigger_agent_engine_memory_generation_lro(
+                    direct_facts=direct_facts[:5],
+                    scope={"user_id": user_id, "session_id": session_id},
+                    agent_engine_id=engine_id,
+                    project_id=proj_num,
+                    location=loc,
+                )
 
             logger.info(f"Synchronized {synced_count} clinical memories to Vertex AI ReasoningEngine {engine_id}")
         except Exception as e:
@@ -605,3 +632,154 @@ class MemoryBankEngine:
             "total_hypotheses": len(hypotheses),
             "errors": errors,
         }
+
+    def pre_turn_retrieval_hook(
+        self,
+        session_id: str,
+        query: str,
+        user_id: str = "oncologist_clinician",
+    ) -> List[Dict[str, Any]]:
+        """Pre-turn retrieval hook calling memories:retrieve before LLM generation."""
+        return retrieve_from_agent_engine_memory_bank(
+            query=query,
+            scope={"user_id": user_id},
+        )
+
+    def post_session_consolidation_hook(
+        self,
+        session_id: str,
+        user_id: str = "oncologist_clinician",
+    ) -> Dict[str, Any]:
+        """Post-session consolidation hook calling memories:generate to trigger background LRO."""
+        entities = self._entities.get(session_id, [])
+        facts = [f"{e.entity_name} ({e.entity_type})" for e in entities]
+        return trigger_agent_engine_memory_generation_lro(
+            direct_facts=facts,
+            scope={"user_id": user_id, "session_id": session_id},
+        )
+
+
+# =============================================================================
+# Direct Native REST API Integration (Spec 12 Task 3)
+# =============================================================================
+
+def sync_to_agent_engine_memory_bank(
+    fact: str,
+    scope: dict,
+    agent_engine_id: Optional[str] = None,
+    project_id: Optional[str] = None,
+    location: Optional[str] = None,
+) -> Dict[str, Any]:
+    """POSTs directly to Agent Engine Memory Bank REST API using Google ADC credentials."""
+    import os
+    import requests
+    import google.auth
+    from google.auth.transport.requests import Request
+
+    proj_num = project_id or os.getenv("GCP_PROJECT_NUMBER", "301802433103")
+    loc = location or os.getenv("GEA_REGION", "us-east1")
+    engine_id = agent_engine_id or os.getenv("GEA_REASONING_ENGINE_ID", "4359942935643422720")
+
+    try:
+        creds, _ = google.auth.default(scopes=["https://www.googleapis.com/auth/cloud-platform"])
+        creds.refresh(Request())
+        headers = {
+            "Authorization": f"Bearer {creds.token}",
+            "Content-Type": "application/json",
+        }
+        body = {"fact": fact, "scope": scope}
+
+        # Try reasoningEngines endpoint first
+        url = f"https://{loc}-aiplatform.googleapis.com/v1beta1/projects/{proj_num}/locations/{loc}/reasoningEngines/{engine_id}/memories"
+        resp = requests.post(url, headers=headers, json=body, timeout=10)
+
+        # Fallback to agentEngines endpoint if 404
+        if resp.status_code == 404:
+            url_alt = f"https://{loc}-aiplatform.googleapis.com/v1beta1/projects/{proj_num}/locations/{loc}/agentEngines/{engine_id}/memories"
+            resp = requests.post(url_alt, headers=headers, json=body, timeout=10)
+
+        if resp.status_code in (200, 201):
+            return {"status": "SUCCESS", "status_code": resp.status_code, "data": resp.json()}
+        else:
+            return {"status": "ERROR", "status_code": resp.status_code, "error": resp.text}
+    except Exception as e:
+        logger.warning(f"sync_to_agent_engine_memory_bank error: {e}")
+        return {"status": "ERROR", "error": str(e)}
+
+
+def retrieve_from_agent_engine_memory_bank(
+    query: str,
+    scope: dict,
+    agent_engine_id: Optional[str] = None,
+    project_id: Optional[str] = None,
+    location: Optional[str] = None,
+) -> List[Dict[str, Any]]:
+    """Pre-turn retrieval hook calling memories:retrieve before LLM generation."""
+    import os
+    import requests
+    import google.auth
+    from google.auth.transport.requests import Request
+
+    proj_num = project_id or os.getenv("GCP_PROJECT_NUMBER", "301802433103")
+    loc = location or os.getenv("GEA_REGION", "us-east1")
+    engine_id = agent_engine_id or os.getenv("GEA_REASONING_ENGINE_ID", "4359942935643422720")
+
+    try:
+        creds, _ = google.auth.default(scopes=["https://www.googleapis.com/auth/cloud-platform"])
+        creds.refresh(Request())
+        headers = {
+            "Authorization": f"Bearer {creds.token}",
+            "Content-Type": "application/json",
+        }
+        body = {
+            "scope": scope,
+            "simple_retrieval_params": {"page_size": 10},
+        }
+
+        url = f"https://{loc}-aiplatform.googleapis.com/v1beta1/projects/{proj_num}/locations/{loc}/reasoningEngines/{engine_id}/memories:retrieve"
+        resp = requests.post(url, headers=headers, json=body, timeout=10)
+        if resp.status_code == 200:
+            return resp.json().get("retrievedMemories", [])
+        return []
+    except Exception as e:
+        logger.debug(f"Pre-turn memory retrieval hook failed: {e}")
+        return []
+
+
+def trigger_agent_engine_memory_generation_lro(
+    direct_facts: List[str],
+    scope: dict,
+    agent_engine_id: Optional[str] = None,
+    project_id: Optional[str] = None,
+    location: Optional[str] = None,
+) -> Dict[str, Any]:
+    """Post-session consolidation hook calling memories:generate to trigger background LRO."""
+    import os
+    from google.cloud import aiplatform_v1beta1
+    from google.api_core.client_options import ClientOptions
+
+    proj_num = project_id or os.getenv("GCP_PROJECT_NUMBER", "301802433103")
+    loc = location or os.getenv("GEA_REGION", "us-east1")
+    engine_id = agent_engine_id or os.getenv("GEA_REASONING_ENGINE_ID", "4359942935643422720")
+
+    try:
+        client = aiplatform_v1beta1.MemoryBankServiceClient(
+            client_options=ClientOptions(api_endpoint=f"{loc}-aiplatform.googleapis.com")
+        )
+        parent = f"projects/{proj_num}/locations/{loc}/reasoningEngines/{engine_id}"
+        direct_memories = [{"fact": f} for f in direct_facts] if direct_facts else [{"fact": "Session turn completed."}]
+
+        req = aiplatform_v1beta1.GenerateMemoriesRequest(
+            parent=parent,
+            scope=scope,
+            direct_memories_source=aiplatform_v1beta1.GenerateMemoriesRequest.DirectMemoriesSource(
+                direct_memories=direct_memories
+            ),
+        )
+        operation = client.generate_memories(request=req)
+        op_name = operation.operation.name
+        logger.info(f"Triggered Vertex AI Memory Bank LRO: {op_name}")
+        return {"status": "SUCCESS", "operation": op_name}
+    except Exception as e:
+        logger.warning(f"Post-session memory generation hook failed: {e}")
+        return {"status": "ERROR", "error": str(e)}
