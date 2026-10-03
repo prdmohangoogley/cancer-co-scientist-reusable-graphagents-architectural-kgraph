@@ -47,7 +47,7 @@ from packages.graphagent.observability.telemetry import (
     emit_cloud_log,
 )
 from packages.graphagent.evals.register_gea_experiments import register_all_categorized_experiments
-from apps.co-scientist.agent.memory_bank import (
+from agent.memory_bank import (
     MemoryBankEngine,
     sync_to_agent_engine_memory_bank,
     retrieve_from_agent_engine_memory_bank,
@@ -197,21 +197,22 @@ BENCHMARK_SESSIONS = [
 def query_reasoning_engine(
     resource_id: str,
     prompt: str,
-    session_id: str,
-    user_id: str,
+    session_id: Optional[str] = None,
+    user_id: str = "oncologist_clinician",
     headers: Optional[Dict[str, str]] = None,
 ) -> Tuple[str, float, int, int, List[str]]:
     """Invokes deployed Reasoning Engine via native streamQuery REST endpoint with session context."""
     url = f"https://{LOCATION}-aiplatform.googleapis.com/v1beta1/{resource_id}:streamQuery"
+    input_payload: Dict[str, Any] = {
+        "user_id": user_id,
+        "message": prompt,
+    }
+    if session_id:
+        input_payload["session_id"] = str(session_id)
+
     body = {
         "classMethod": "stream_query",
-        "input": {
-            "session_id": session_id,
-            "user_id": user_id,
-            "message": prompt,
-            "prompt": prompt,
-            "query": prompt,
-        },
+        "input": input_payload,
     }
     t0 = time.time()
     prompt_tokens = len(prompt.split()) * 4 + 140
@@ -301,6 +302,22 @@ def execute_live_benchmark() -> Dict[str, Any]:
 
         session_facts = []
 
+        # Create an authentic session on Vertex AI Reasoning Engine if available
+        live_session_id = None
+        try:
+            import vertexai
+            from vertexai.preview import reasoning_engines
+            vertexai.init(project=PROJECT_ID, location=LOCATION)
+            re_agent = reasoning_engines.ReasoningEngine(graph_resource)
+            session_obj = re_agent.create_session(user_id=user_id)
+            if isinstance(session_obj, dict):
+                live_session_id = session_obj.get("id")
+            elif hasattr(session_obj, "id"):
+                live_session_id = session_obj.id
+            logger.info(f"   Created Vertex AI session: {live_session_id}")
+        except Exception as e_sess:
+            logger.debug(f"   Could not pre-create session: {e_sess}")
+
         for t_idx, turn in enumerate(turns, 1):
             if creds.expired:
                 creds.refresh(Request())
@@ -317,7 +334,7 @@ def execute_live_benchmark() -> Dict[str, Any]:
             try:
                 retrieved = retrieve_from_agent_engine_memory_bank(
                     query=prompt,
-                    scope={"user_id": user_id, "session_id": session_id},
+                    scope={"user_id": user_id, "session_id": live_session_id or session_id},
                     agent_engine_id=GRAPH_AGENT_ID,
                     project_id=PROJECT_NUMBER,
                     location=LOCATION,
@@ -330,7 +347,7 @@ def execute_live_benchmark() -> Dict[str, Any]:
             resp_text, elapsed_s, p_tok, c_tok, tools_called = query_reasoning_engine(
                 resource_id=graph_resource,
                 prompt=prompt,
-                session_id=session_id,
+                session_id=live_session_id,
                 user_id=user_id,
                 headers=headers,
             )

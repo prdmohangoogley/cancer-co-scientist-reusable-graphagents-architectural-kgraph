@@ -60,10 +60,39 @@ def tool_span(name: str, category: str = "Discrete", **attributes):
             span.set_attribute("gen_ai.tool.duration", elapsed_ms / 1000.0)
             span.set_attribute("telemetry.latency_ms", elapsed_ms)
 
-try:
-    from observability.telemetry import trace_tool
-except ImportError:
-    from packages.graphagent.observability.telemetry import trace_tool
+import functools
+
+def trace_tool(tool_name: str, category: str = "Discrete"):
+    """Decorator to trace tool execution creating standard gen_ai.tool.{tool_name} span."""
+    def decorator(func):
+        @functools.wraps(func)
+        def wrapper(*args, **kwargs):
+            span_name = f"gen_ai.tool.{tool_name}" if not tool_name.startswith("gen_ai.tool.") else tool_name
+            tracer = trace.get_tracer("cancer.co_scientist.tracer")
+            with tracer.start_as_current_span(
+                span_name,
+                attributes={
+                    "gen_ai.tool.name": tool_name,
+                    "gen_ai.system": "vertexai",
+                    "gcp.vertex.agent.workflow_type": category,
+                }
+            ) as span:
+                t0 = time.time()
+                try:
+                    res = func(*args, **kwargs)
+                    elapsed_s = max(0.001, time.time() - t0)
+                    span.set_attribute("gen_ai.tool.duration", elapsed_s)
+                    span.set_attribute("telemetry.latency_ms", elapsed_s * 1000.0)
+                    span.set_attribute("gen_ai.tool.status", "success")
+                    return res
+                except Exception as e:
+                    elapsed_s = max(0.001, time.time() - t0)
+                    span.set_attribute("gen_ai.tool.duration", elapsed_s)
+                    span.set_attribute("gen_ai.tool.status", "error")
+                    span.record_exception(e)
+                    raise
+        return wrapper
+    return decorator
 
 COMMON_REQUIREMENTS = [
     "google-adk>=2.10.0",
