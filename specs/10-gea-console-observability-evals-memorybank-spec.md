@@ -126,20 +126,31 @@ and emit strictly declarative A2UI JSON components.""",
     ],
 )
 
-# 2. Wrapped in AdkApp with Tracing Enabled
-app = AdkApp(agent=lead_orchestrator, enable_tracing=True)
+# 2. Wrapped in TelemetryAdkApp with Tracing & Request-Driven Metrics Enabled
+class TelemetryAdkApp(AdkApp):
+    """ADK App template subclass enabling Vertex Agent Engine telemetry & experimental semconv."""
+
+    def set_up(self):
+        import os
+        os.environ["GOOGLE_CLOUD_AGENT_ENGINE_ENABLE_TELEMETRY"] = "true"
+        os.environ["OTEL_SEMCONV_STABILITY_OPT_IN"] = "gen_ai_latest_experimental"
+        os.environ["OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT"] = "EVENT_ONLY"
+        super().set_up()
+
+app = TelemetryAdkApp(agent=lead_orchestrator, enable_tracing=True)
 ```
 
-### 3.1 Why AdkApp is Architecturally Required for GCP Console Dashboards
-Deploying a raw custom Python class causes all GCP Console dashboards to show zeroes because Vertex AI Agent Engine cannot bind its native services. Wrapping with `AdkApp` guarantees:
+### 3.1 Why TelemetryAdkApp is Architecturally Required for GCP Console Dashboards
+Deploying a raw custom Python class causes all GCP Console dashboards to show zeroes because Vertex AI Agent Engine cannot bind its native services. Wrapping with `TelemetryAdkApp` guarantees:
 1. **`agentFramework: "google-adk"`**: The GCP Console recognizes the workload as an official ADK Agent.
 2. **`VertexAiSessionService` Auto-Binding**: When running inside Vertex AI Agent Engine, `AdkApp` automatically attaches to `VertexAiSessionService`, recording sessions and turns to populate the **Overview Tab (Sessions, Avg turns, Invocations)**.
 3. **`VertexAiMemoryBankService` Auto-Binding**: Seamlessly connects to the **Memories Tab**, persisting extracted genomic entities and therapeutic hypotheses.
-4. **GenAI Semantic Metrics (`opentelemetry-instrumentation-google-genai`)**: Automatically instruments all Gemini model calls, emitting `gen_ai.client.token.usage` and `gen_ai.client.operation.duration` to populate the **Models Tab (Model calls, P95 duration)** and **Usage Tab (Token timeseries)**.
-5. **Console Playground Streaming**: Implements standard ADK `stream_query` and session management, allowing clinicians to test the agent directly in the GCP Console Playground chat bubble.
+4. **Request-Driven GenAI Metrics (`_RequestDrivenMetricReader`)**: On Agent Engine's request-billed CPU runtime, background threads are throttled between requests. `TelemetryAdkApp` initializes `GOOGLE_CLOUD_AGENT_ENGINE_ENABLE_TELEMETRY="true"`, ensuring `_RequestDrivenMetricReader` flushes `gen_ai.client.token.usage` and `gen_ai.execute_tool.duration` during request in-flight processing directly to `telemetry.googleapis.com` before the connection terminates.
+5. **Native Tool Spans (`execute_tool {tool.name}`)**: ADK's `_caller.py` natively instruments all registered tools with OpenTelemetry spans and duration metrics. Tools are maintained as pure, undecorated functions to prevent closure deserialization failures across containers.
+6. **Console Playground Streaming**: Implements standard ADK `stream_query` and session management, allowing clinicians to test the agent directly in the GCP Console Playground chat bubble.
 
 ### 3.2 Registered Tool Methods (Populating the "Tools" Tab)
-The Agent exposes atomic callable tools surfaced directly in the GCP Console Tools tab:
+The Agent exposes atomic callable tools surfaced directly in the GCP Console Tools tab (pure functions without closure decorators):
 1. `delegate_to_graph_agent(inquiry: str, source_entity: str, target_entity: str, algorithm_name: str) -> dict`: Dispatches A2A contract to `cancer-co-scientist-graph-agent`.
 2. `query_primekg_graph(source_entity: str, target_entity: str = None, relation_type: str = None, depth: int = 2) -> dict`: Cloud Spanner Graph ISO GQL query tool.
 3. `execute_graph_algorithm(algorithm_name: str, source_entity: str = None, target_entity: str = None, parameters: dict = None) -> dict`: 15-algorithm matrix execution tool.

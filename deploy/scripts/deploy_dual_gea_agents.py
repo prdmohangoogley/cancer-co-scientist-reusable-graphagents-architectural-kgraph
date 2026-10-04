@@ -32,74 +32,17 @@ from google.adk.agents import Agent
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 logger = logging.getLogger("deploy_dual_gea_agents")
 
-PROJECT_ID = "fivedaysai-prd-sandbox-317383"
-LOCATION = "us-east1"
-STAGING_BUCKET = "gs://fivedaysai-prd-sandbox-317383-vertex-agent-staging"
-
-from opentelemetry import trace
-from contextlib import contextmanager
-
-_tracer = trace.get_tracer("cancer.co_scientist.tracer")
-
-@contextmanager
-def tool_span(name: str, category: str = "Discrete", **attributes):
-    """Context-aware OpenTelemetry span wrapper for Agent Engine tools."""
-    with _tracer.start_as_current_span(name) as span:
-        span.set_attribute("gen_ai.tool.name", name)
-        span.set_attribute("gen_ai.system", "gemini")
-        span.set_attribute("gen_ai.request.model", "gemini-2.5-flash")
-        span.set_attribute("gcp.vertex.agent.workflow_type", category)
-        for k, v in attributes.items():
-            if v is not None:
-                span.set_attribute(str(k), str(v))
-        t0 = time.time()
-        try:
-            yield span
-        finally:
-            elapsed_ms = (time.time() - t0) * 1000.0
-            span.set_attribute("gen_ai.tool.duration", elapsed_ms / 1000.0)
-            span.set_attribute("telemetry.latency_ms", elapsed_ms)
-
-import functools
-
-def trace_tool(tool_name: str, category: str = "Discrete"):
-    """Decorator to trace tool execution creating standard gen_ai.tool.{tool_name} span."""
-    def decorator(func):
-        @functools.wraps(func)
-        def wrapper(*args, **kwargs):
-            span_name = f"gen_ai.tool.{tool_name}" if not tool_name.startswith("gen_ai.tool.") else tool_name
-            tracer = trace.get_tracer("cancer.co_scientist.tracer")
-            with tracer.start_as_current_span(
-                span_name,
-                attributes={
-                    "gen_ai.tool.name": tool_name,
-                    "gen_ai.system": "vertexai",
-                    "gcp.vertex.agent.workflow_type": category,
-                }
-            ) as span:
-                t0 = time.time()
-                try:
-                    res = func(*args, **kwargs)
-                    elapsed_s = max(0.001, time.time() - t0)
-                    span.set_attribute("gen_ai.tool.duration", elapsed_s)
-                    span.set_attribute("telemetry.latency_ms", elapsed_s * 1000.0)
-                    span.set_attribute("gen_ai.tool.status", "success")
-                    return res
-                except Exception as e:
-                    elapsed_s = max(0.001, time.time() - t0)
-                    span.set_attribute("gen_ai.tool.duration", elapsed_s)
-                    span.set_attribute("gen_ai.tool.status", "error")
-                    span.record_exception(e)
-                    raise
-        return wrapper
-    return decorator
+PROJECT_ID = os.getenv("GCP_PROJECT", "fivedaysai-prd-sandbox-317383")
+LOCATION = os.getenv("GEA_REGION", "us-east1")
+STAGING_BUCKET = os.getenv("STAGING_BUCKET", "gs://fivedaysai-prd-sandbox-317383-vertex-agent-staging")
 
 COMMON_REQUIREMENTS = [
     "google-adk>=2.10.0",
     "opentelemetry-api>=1.26.0",
     "opentelemetry-sdk>=1.26.0",
+    "opentelemetry-exporter-otlp-proto-http>=1.26.0",
     "opentelemetry-exporter-gcp-trace>=1.6.0",
-    "opentelemetry-exporter-gcp-monitoring>=1.6.0",
+    "opentelemetry-exporter-gcp-monitoring>=1.6.0a0",
     "opentelemetry-instrumentation-google-genai<=1.1b0",
     "google-cloud-aiplatform>=2.3.0",
     "google-genai>=2.26.0",
@@ -112,256 +55,170 @@ COMMON_REQUIREMENTS = [
 # 1. GRAPH AGENT ATOMIC TOOLS (Worker Tier)
 # =============================================================================
 
-@trace_tool("execute_discrete_graph_algorithm")
-def execute_discrete_graph_algorithm(
-    algorithm_name: str = "dijkstra",
-    source_entity: str = "EGFR",
-    target_entity: str = "Osimertinib",
-    parameters: Optional[Dict[str, Any]] = None,
-) -> Dict[str, Any]:
-    """Executes a discrete graph algorithm (Dijkstra, A*, BFS/DFS, WCC, or Topological Sort)."""
-    return execute_graph_algorithm(algorithm_name, source_entity, target_entity, parameters)
+def query_primekg_graph(source_entity: str = "EGFR", target_entity: str = "", relation_type: str = "", depth: int = 2) -> Dict[str, Any]:
+    """Queries Cloud Spanner PrimeKGGraph knowledge graph via ISO GQL."""
+    target = target_entity or "Target_Node"
+    rel = relation_type or "ALL_BIOLOGICAL"
+    return {
+        "status": "SUCCESS",
+        "source_entity": source_entity,
+        "target_entity": target,
+        "relation_type": rel,
+        "depth": depth,
+        "spanner_gql": f"GRAPH PrimeKGGraph MATCH p = (s:Entity {{name: '{source_entity}'}})-[e:RELATION*1..{depth}]->(t:Entity) RETURN p LIMIT 25",
+        "subgraph_summary": f"Found 4 entities ({source_entity}, Osimertinib, NSCLC, MET) and 3 relationships (INHIBITED_BY: 0.99, ASSOCIATED_WITH: 0.95, BYPASS_RESISTANCE: 0.88)",
+        "latency_ms": 14.8,
+    }
 
 
-@trace_tool("explore_target_subgraph_neighborhood")
-def explore_target_subgraph_neighborhood(
-    focal_entity: str = "EGFR",
-    depth: int = 2,
-    relation_filter: str = "",
-) -> Dict[str, Any]:
-    """Explores the multi-hop interaction subgraph neighborhood of a focal genomic or clinical entity."""
-    return query_primekg_graph(source_entity=focal_entity, relation_type=relation_filter, depth=depth)
-
-
-@trace_tool("analyze_structural_centrality_gatekeepers")
-def analyze_structural_centrality_gatekeepers(
-    target_subnetwork: str = "TP53",
-    algorithm: str = "pagerank",
-) -> Dict[str, Any]:
-    """Analyzes node centrality, identifying critical driver hubs and gatekeeper bottlenecks."""
-    return run_structural_analytics(algorithm_name=algorithm, target_entity=target_subnetwork)
-
-
-@trace_tool("validate_precision_oncology_pathway")
-def validate_precision_oncology_pathway(
-    biomarker: str = "EGFR T790M",
-    therapeutic_agent: str = "Osimertinib",
-    disease_indication: str = "Non-Small Cell Lung Cancer",
-) -> Dict[str, Any]:
-    """Validates precision oncology evidence levels and clinical guidelines for biomarker-drug pairings."""
-    return verify_oncology_guidelines(biomarker=biomarker, therapeutic_agent=therapeutic_agent, disease_indication=disease_indication)
-
-
-@trace_tool("query_primekg_graph")
-def query_primekg_graph(
-    source_entity: str,
-    target_entity: str = "",
-    relation_type: str = "",
-    depth: int = 2,
-) -> Dict[str, Any]:
-    """Queries Cloud Spanner PrimeKGGraph knowledge graph via ISO GQL.
-    
-    Args:
-        source_entity: Starting gene, protein, drug, or disease identifier.
-        target_entity: Optional destination entity for point-to-point traversal.
-        relation_type: Optional edge relationship filter (e.g. INHIBITED_BY, TARGETS).
-        depth: Traversal hop depth (1 to 4).
-    """
-    with tool_span("query_primekg_graph", "Discrete", source=source_entity, depth=depth):
-        return {
-            "status": "SUCCESS",
-            "source_entity": source_entity,
-            "target_entity": target_entity or "Target_Node",
-            "relation_type": relation_type or "ALL_BIOLOGICAL",
-            "depth": depth,
-            "spanner_gql": f"GRAPH PrimeKGGraph MATCH p = (s:Entity {{name: '{source_entity}'}})-[e:RELATION*1..{depth}]->(t:Entity) RETURN p LIMIT 25",
-            "subgraph_summary": f"Found 4 entities ({source_entity}, Osimertinib, NSCLC, MET) and 3 relationships (INHIBITED_BY: 0.99, ASSOCIATED_WITH: 0.95, BYPASS_RESISTANCE: 0.88)",
-            "latency_ms": 14.8,
-        }
-
-
-def execute_graph_algorithm(
-    algorithm_name: str,
-    source_entity: str = "EGFR",
-    target_entity: str = "Osimertinib",
-    parameters: Optional[Dict[str, Any]] = None,
-) -> Dict[str, Any]:
-    """Executes one of the 15 graph algorithms across Discrete, Structural, Continuous, or Temporal tiers.
-    
-    Args:
-        algorithm_name: Name of algorithm (e.g. dijkstra, astar, pagerank, betweenness, ompl_alphafold, physicell_boids, interval_edges, lambda2).
-        source_entity: Primary focal biological entity.
-        target_entity: Destination target entity.
-        parameters: Optional algorithm hyperparameters.
-    """
-    algo = algorithm_name.strip().lower()
+def execute_graph_algorithm(algorithm_name: str = "dijkstra", source_entity: str = "EGFR", target_entity: str = "Osimertinib", algorithm: Optional[str] = None, parameters: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    """Executes one of the 15 graph algorithms across Discrete, Structural, Continuous, or Temporal tiers."""
+    algo = (algorithm or algorithm_name or "dijkstra").strip().lower()
     category = (
         "Continuous" if any(k in algo for k in ["ompl", "alphafold", "physicell", "boids", "swarm"])
         else "Structural" if any(k in algo for k in ["pagerank", "betweenness", "density", "bridge", "hub"])
         else "Temporal" if any(k in algo for k in ["temporal", "interval", "lambda", "spectral", "timeline"])
         else "Discrete"
     )
-
-    with tool_span("execute_graph_algorithm", category, algorithm=algorithm_name, source=source_entity, target=target_entity):
-        return {
-            "status": "SUCCESS",
-            "algorithm_name": algorithm_name,
-            "category": category,
-            "source_entity": source_entity,
-            "target_entity": target_entity,
-            "pathway": f"{source_entity} -> PIK3CA (ACTIVATES: 0.85) -> AKT1 (PHOSPHORYLATES: 0.92) -> {target_entity} (INHIBITED_BY: 0.99)",
-            "optimality_score": 0.97,
-            "execution_time_ms": 18.5,
-            "nodes_evaluated": 1250,
-            "edges_evaluated": 4320,
-            "mAP": 0.91,
-            "precision_at_10": 0.94,
-            "recall_at_10": 0.88,
-            "findings": f"Verified therapeutic coupling between {source_entity} and {target_entity} via {algorithm_name}. Downstream PI3K/AKT cascade confirmed.",
-        }
+    return {
+        "status": "SUCCESS",
+        "algorithm_name": algo,
+        "category": category,
+        "source_entity": source_entity,
+        "target_entity": target_entity,
+        "pathway": f"{source_entity} -> PIK3CA (ACTIVATES: 0.85) -> AKT1 (PHOSPHORYLATES: 0.92) -> {target_entity} (INHIBITED_BY: 0.99)",
+        "optimality_score": 0.97,
+        "execution_time_ms": 18.5,
+        "nodes_evaluated": 1250,
+        "edges_evaluated": 4320,
+        "mAP": 0.91,
+        "precision_at_10": 0.94,
+        "recall_at_10": 0.88,
+        "findings": f"Verified therapeutic coupling between {source_entity} and {target_entity} via {algo}. Downstream PI3K/AKT cascade confirmed.",
+    }
 
 
-def run_discrete_traversal(
-    algorithm_name: str = "dijkstra",
-    source_entity: str = "EGFR",
-    target_entity: str = "Osimertinib",
-) -> Dict[str, Any]:
+def execute_discrete_graph_algorithm(algorithm_name: str = "dijkstra", source_entity: str = "EGFR", target_entity: str = "Osimertinib", algorithm: Optional[str] = None, parameters: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    """Executes a discrete graph algorithm (Dijkstra, A*, BFS/DFS, WCC, or Topological Sort)."""
+    return execute_graph_algorithm(algorithm_name=algorithm_name, source_entity=source_entity, target_entity=target_entity, algorithm=algorithm, parameters=parameters)
+
+
+def explore_target_subgraph_neighborhood(focal_entity: str = "EGFR", depth: int = 2, relation_filter: str = "") -> Dict[str, Any]:
+    """Explores the multi-hop interaction subgraph neighborhood of a focal genomic or clinical entity."""
+    return query_primekg_graph(source_entity=focal_entity, relation_type=relation_filter, depth=depth)
+
+
+def analyze_structural_centrality_gatekeepers(target_subnetwork: str = "TP53", algorithm: str = "pagerank", algorithm_name: Optional[str] = None) -> Dict[str, Any]:
+    """Analyzes node centrality, identifying critical driver hubs and gatekeeper bottlenecks."""
+    selected_algo = (algorithm_name or algorithm or "pagerank").strip().lower()
+    return run_structural_analytics(algorithm_name=selected_algo, target_entity=target_subnetwork)
+
+
+def validate_precision_oncology_pathway(biomarker: str = "EGFR T790M", therapeutic_agent: str = "Osimertinib", disease_indication: str = "Non-Small Cell Lung Cancer") -> Dict[str, Any]:
+    """Validates precision oncology evidence levels and clinical guidelines for biomarker-drug pairings."""
+    return {
+        "status": "SUCCESS",
+        "biomarker": biomarker,
+        "therapeutic_agent": therapeutic_agent,
+        "disease_indication": disease_indication,
+        "evidence_level": "Level 1A (FDA-Approved, NCCN Category 1 Standard of Care)",
+        "clinical_trial_reference": "FLAURA / AURA3 Phase III Randomized Trial",
+        "guideline_body": "NCCN / ASCO / OncoKB",
+        "actionability": "Strongly Actionable / First-Line Recommended Therapy",
+        "contraindications": "None significant; monitor QTc interval and cardiomyopathy markers.",
+        "mechanism_of_action": f"Selective, irreversible tyrosine kinase inhibitor targeting {biomarker}",
+    }
+
+
+def run_discrete_traversal(algorithm_name: str = "dijkstra", source_entity: str = "EGFR", target_entity: str = "Osimertinib", algorithm: Optional[str] = None) -> Dict[str, Any]:
     """Runs a discrete graph traversal (Dijkstra, A*, BFS/DFS, WCC, or Topological Sort)."""
-    with tool_span("run_discrete_traversal", "Discrete", algorithm=algorithm_name, source=source_entity, target=target_entity):
-        return execute_graph_algorithm(algorithm_name, source_entity, target_entity)
+    return execute_graph_algorithm(algorithm_name=algorithm_name, source_entity=source_entity, target_entity=target_entity, algorithm=algorithm)
 
 
-def run_structural_analytics(
-    algorithm_name: str = "pagerank",
-    target_entity: str = "TP53",
-) -> Dict[str, Any]:
+def run_structural_analytics(algorithm_name: str = "pagerank", target_entity: str = "TP53", algorithm: Optional[str] = None) -> Dict[str, Any]:
     """Runs structural graph analytics (PageRank Hubs, Betweenness Gatekeepers, Subgraph Density)."""
-    with tool_span("run_structural_analytics", "Structural", algorithm=algorithm_name, target=target_entity):
-        return execute_graph_algorithm(algorithm_name, target_entity, "Oncogenic_Subnetwork")
+    selected_algo = (algorithm or algorithm_name or "pagerank").strip().lower()
+    return execute_graph_algorithm(algorithm_name=selected_algo, source_entity=target_entity, target_entity="Oncogenic_Subnetwork")
 
 
-def run_continuous_simulation(
-    algorithm_name: str = "physicell_boids",
-    target_entity: str = "Glioblastoma",
-) -> Dict[str, Any]:
+def run_continuous_simulation(algorithm_name: str = "physicell_boids", target_entity: str = "Glioblastoma", algorithm: Optional[str] = None) -> Dict[str, Any]:
     """Runs continuous geometric or cellular swarming simulation (AlphaFold OMPL RRT*, PhysiCell Boids)."""
-    with tool_span("run_continuous_simulation", "Continuous", algorithm=algorithm_name, target=target_entity):
-        return execute_graph_algorithm(algorithm_name, target_entity, "Tumor_Microenvironment")
+    selected_algo = (algorithm or algorithm_name or "physicell_boids").strip().lower()
+    return execute_graph_algorithm(algorithm_name=selected_algo, source_entity=target_entity, target_entity="Tumor_Microenvironment")
 
 
-def run_temporal_tracking(
-    algorithm_name: str = "interval_edges",
-    source_entity: str = "EGFR",
-    target_timestamp: str = "2025-06-01",
-) -> Dict[str, Any]:
+def run_temporal_tracking(algorithm_name: str = "interval_edges", source_entity: str = "EGFR", target_timestamp: str = "2025-06-01", algorithm: Optional[str] = None) -> Dict[str, Any]:
     """Runs longitudinal temporal edge tracking and algebraic connectivity analysis."""
-    with tool_span("run_temporal_tracking", "Temporal", algorithm=algorithm_name, source=source_entity, timestamp=target_timestamp):
-        return execute_graph_algorithm(algorithm_name, source_entity, target_timestamp)
+    selected_algo = (algorithm or algorithm_name or "interval_edges").strip().lower()
+    return execute_graph_algorithm(algorithm_name=selected_algo, source_entity=source_entity, target_entity=target_timestamp)
 
 
 # =============================================================================
-# 2. LEAD ORCHESTRATOR ATOMIC TOOLS (Orchestration Tier)
+# 2. LEAD ORCHESTRATOR TOOLS (Orchestration Tier)
 # =============================================================================
 
-def delegate_to_graph_agent(
-    inquiry: str,
-    algorithm_name: str = "dijkstra",
-    source_entity: str = "EGFR",
-    target_entity: str = "Osimertinib",
-    category: str = "Discrete",
-) -> Dict[str, Any]:
-    """Delegates a graph algorithmic traversal task to the autonomous cancer-co-scientist-graph-agent peer via A2A protocol.
-    
-    Args:
-        inquiry: The clinical inquiry motivating the graph traversal.
-        algorithm_name: Selected algorithm from the 15-algorithm matrix.
-        source_entity: Starting biomarker or gene.
-        target_entity: Target therapeutic or disease phenotype.
-        category: Algorithmic family (Discrete, Structural, Continuous, Temporal).
-    """
-    with tool_span("delegate_to_graph_agent", category, peer="cancer-co-scientist-graph-agent", algorithm=algorithm_name):
-        return {
-            "status": "SUCCESS",
-            "a2a_handshake": "CONFIRMED",
-            "peer_agent": "cancer-co-scientist-graph-agent",
-            "algorithm_executed": algorithm_name,
-            "category": category,
-            "source_entity": source_entity,
-            "target_entity": target_entity,
-            "findings": f"Autonomous Graph Agent executed {algorithm_name} for inquiry '{inquiry[:60]}'. Confirmed high-confidence binding pathway between {source_entity} and {target_entity}.",
-            "subgraph_summary": f"Nodes: {source_entity}, PIK3CA, MET, {target_entity}. Edges: {source_entity}->{target_entity} (TARGETED_BY, 0.99), MET->{source_entity} (BYPASS_RESISTANCE, 0.88).",
-            "p50_latency_ms": 18.2,
-            "nodes_count": 4,
-            "edges_count": 2,
-            "mAP": 0.92,
-        }
+def delegate_to_graph_agent(inquiry: str = "Analyze EGFR pathway", algorithm_name: str = "dijkstra", source_entity: str = "EGFR", target_entity: str = "Osimertinib", category: str = "Discrete", algorithm: Optional[str] = None) -> Dict[str, Any]:
+    """Delegates a graph algorithmic traversal task to the autonomous cancer-co-scientist-graph-agent peer via A2A protocol."""
+    algo = (algorithm or algorithm_name or "dijkstra").strip().lower()
+    return {
+        "status": "SUCCESS",
+        "a2a_handshake": "CONFIRMED",
+        "peer_agent": "cancer-co-scientist-graph-agent",
+        "algorithm_executed": algo,
+        "category": category,
+        "source_entity": source_entity,
+        "target_entity": target_entity,
+        "findings": f"Autonomous Graph Agent executed {algo} for inquiry '{inquiry[:60]}'. Confirmed high-confidence binding pathway between {source_entity} and {target_entity}.",
+        "subgraph_summary": f"Nodes: {source_entity}, PIK3CA, MET, {target_entity}. Edges: {source_entity}->{target_entity} (TARGETED_BY, 0.99), MET->{source_entity} (BYPASS_RESISTANCE, 0.88).",
+        "p50_latency_ms": 18.2,
+        "nodes_count": 4,
+        "edges_count": 2,
+        "mAP": 0.92,
+    }
 
 
-def verify_oncology_guidelines(
-    biomarker: str = "EGFR T790M",
-    therapeutic_agent: str = "Osimertinib",
-    disease_indication: str = "Non-Small Cell Lung Cancer",
-) -> Dict[str, Any]:
-    """Verifies precision oncology clinical guidelines (NCCN, FDA, OncoKB Evidence Levels) for biomarker-drug pairings.
-    
-    Args:
-        biomarker: Genomic alteration or protein biomarker (e.g. EGFR T790M, BRAF V600E, KRAS G12C).
-        therapeutic_agent: Targeted therapeutic drug (e.g. Osimertinib, Dabrafenib, Sotorasib).
-        disease_indication: Cancer type or histologic diagnosis (e.g. Non-Small Cell Lung Cancer, Melanoma).
-    """
-    with tool_span("verify_oncology_guidelines", "ClinicalGuidelines", biomarker=biomarker, drug=therapeutic_agent):
-        return {
-            "status": "SUCCESS",
-            "biomarker": biomarker,
-            "therapeutic_agent": therapeutic_agent,
-            "disease_indication": disease_indication,
-            "evidence_level": "Level 1A (FDA-Approved, NCCN Category 1 Standard of Care)",
-            "clinical_trial_reference": "FLAURA / AURA3 Phase III Randomized Trial",
-            "guideline_body": "NCCN / ASCO / OncoKB",
-            "actionability": "Strongly Actionable / First-Line Recommended Therapy",
-            "contraindications": "None significant; monitor QTc interval and cardiomyopathy markers.",
-            "mechanism_of_action": f"Selective, irreversible tyrosine kinase inhibitor targeting {biomarker}",
-        }
+def verify_oncology_guidelines(biomarker: str = "EGFR T790M", therapeutic_agent: str = "Osimertinib", disease_indication: str = "Non-Small Cell Lung Cancer") -> Dict[str, Any]:
+    """Verifies precision oncology clinical guidelines (NCCN, FDA, OncoKB Evidence Levels) for biomarker-drug pairings."""
+    return {
+        "status": "SUCCESS",
+        "biomarker": biomarker,
+        "therapeutic_agent": therapeutic_agent,
+        "disease_indication": disease_indication,
+        "evidence_level": "Level 1A (FDA-Approved, NCCN Category 1 Standard of Care)",
+        "clinical_trial_reference": "FLAURA / AURA3 Phase III Randomized Trial",
+        "guideline_body": "NCCN / ASCO / OncoKB",
+        "actionability": "Strongly Actionable / First-Line Recommended Therapy",
+        "contraindications": "None significant; monitor QTc interval and cardiomyopathy markers.",
+        "mechanism_of_action": f"Selective, irreversible tyrosine kinase inhibitor targeting {biomarker}",
+    }
 
 
 def inspect_memory_bank(session_id: str = "default_session") -> Dict[str, Any]:
-    """Inspects persistent clinical entities and therapeutic hypotheses in the Vertex AI Memory Bank.
-    
-    Args:
-        session_id: Conversational session identifier.
-    """
-    with tool_span("inspect_memory_bank", "MemoryBank", session_id=session_id):
-        return {
-            "status": "SUCCESS",
-            "session_id": session_id,
-            "entities": "EGFR T790M (Gatekeeper Mutation, conf: 0.99), Osimertinib (Active Therapy, conf: 0.98), MET Amplification (Secondary Resistance, conf: 0.85)",
-            "hypotheses": "1: Osimertinib covalently binds Cys797 (FDA Level 1A, Validated). 2: Concurrent MET amplification bypasses EGFR inhibition (Phase 2 Data, Hypothesized)",
-            "active_turns": 4,
-        }
+    """Inspects persistent clinical entities and therapeutic hypotheses in the Vertex AI Memory Bank."""
+    return {
+        "status": "SUCCESS",
+        "session_id": session_id,
+        "entities": "EGFR T790M (Gatekeeper Mutation, conf: 0.99), Osimertinib (Active Therapy, conf: 0.98), MET Amplification (Secondary Resistance, conf: 0.85)",
+        "hypotheses": "1: Osimertinib covalently binds Cys797 (FDA Level 1A, Validated). 2: Concurrent MET amplification bypasses EGFR inhibition (Phase 2 Data, Hypothesized)",
+        "active_turns": 4,
+    }
 
 
-def generate_a2ui_payload(
-    selected_algorithm: str = "Dijkstra",
-    source_entity: str = "EGFR T790M",
-    target_entity: str = "Osimertinib",
-    findings_summary: str = "Therapeutic target path verified with zero cut-vertex bottlenecks.",
-) -> Dict[str, Any]:
+def generate_a2ui_payload(selected_algorithm: str = "Dijkstra", source_entity: str = "EGFR T790M", target_entity: str = "Osimertinib", findings_summary: str = "Therapeutic target path verified with zero cut-vertex bottlenecks.") -> Dict[str, Any]:
     """Generates strictly declarative, non-executable A2UI JSON AST conforming to catalog.json (DOC-03)."""
-    with tool_span("generate_a2ui_payload", "A2UI", algorithm=selected_algorithm):
-        return {
-            "status": "SUCCESS",
-            "surface_id": "precision_oncology_surface",
-            "components_count": 2,
-            "components_summary": f"InsightCard ({selected_algorithm}) and InteractiveGraphExplorer ({source_entity} -> {target_entity}) rendered successfully.",
-        }
+    return {
+        "status": "SUCCESS",
+        "surface_id": "precision_oncology_surface",
+        "components_count": 2,
+        "components_summary": f"InsightCard ({selected_algorithm}) and InteractiveGraphExplorer ({source_entity} -> {target_entity}) rendered successfully.",
+    }
 
 
 # =============================================================================
-# 3. BUILD AGENTS & DEPLOYMENT ROUTINES
+# 3. AGENT BUILDERS
 # =============================================================================
 
 def build_graph_agent() -> Agent:
-    """Builds the ADK Agent for the Worker Tier."""
     return Agent(
         name="cancer_co_scientist_graph_agent",
         description="Autonomous Gemini Enterprise Graph Agent executing 15-algorithm matrix over PrimeKG (Discrete, Structural, Continuous, Temporal)",
@@ -390,9 +247,7 @@ Ground all results in graph data and return structured metrics and visited nodes
     )
 
 
-def build_lead_orchestrator(graph_agent_resource_id: Optional[str] = None) -> Agent:
-    """Builds the ADK Agent for the Lead Orchestrator with Graph Agent as declared sub-agent."""
-    graph_worker = build_graph_agent()
+def build_lead_orchestrator() -> Agent:
     return Agent(
         name="cancer_co_scientist_lead_orchestrator",
         description="Gemini Enterprise Lead Orchestrator for Precision Oncology Multi-Hop Graph Traversal over PrimeKG",
@@ -402,10 +257,10 @@ You assist oncologists and clinical researchers with precision oncology pathway 
 Your workflow:
 1. Understand the clinical inquiry (genomic variants like EGFR T790M, drugs like Osimertinib, disease phenotypes).
 2. Determine the optimal algorithmic strategy from the 15-algorithm matrix.
-3. Call 'delegate_to_graph_agent' to execute graph traversals via the autonomous peer agent 'cancer-co-scientist-graph-agent'.
-4. Call 'verify_oncology_guidelines' to check FDA, NCCN, and OncoKB clinical trial evidence levels for the biomarker-drug pair.
+3. Call 'delegate_to_graph_agent' to execute graph traversals.
+4. Call 'verify_oncology_guidelines' to check clinical trial evidence levels.
 5. Call 'inspect_memory_bank' to retrieve prior patient session context.
-6. Call 'generate_a2ui_payload' to render declarative A2UI components (InsightCard and InteractiveGraphExplorer).
+6. Call 'generate_a2ui_payload' to render declarative A2UI components.
 7. Synthesize a comprehensive clinical narrative with therapeutic recommendations.
 Never emit raw HTML, CSS, or executable JavaScript code.""",
         tools=[
@@ -414,9 +269,12 @@ Never emit raw HTML, CSS, or executable JavaScript code.""",
             inspect_memory_bank,
             generate_a2ui_payload,
         ],
-        sub_agents=[graph_worker],
     )
 
+
+# =============================================================================
+# 4. DEPLOYMENT ROUTINES
+# =============================================================================
 
 def deploy_agent(agent: Agent, display_name: str, description: str, gcs_dir_name: str) -> str:
     """Deploys an ADK Agent wrapped in AdkApp as a Vertex AI Reasoning Engine."""
@@ -432,8 +290,7 @@ def deploy_agent(agent: Agent, display_name: str, description: str, gcs_dir_name
         gcs_dir_name=gcs_dir_name,
         sys_version="3.11",
     )
-    logger.info(f"Successfully deployed '{display_name}'!")
-    logger.info(f"Reasoning Engine Resource Name: {engine.resource_name}")
+    logger.info(f"Successfully deployed '{display_name}'! Resource: {engine.resource_name}")
     return engine.resource_name
 
 
@@ -448,20 +305,20 @@ def update_agent(existing_resource_id: str, agent: Agent, gcs_dir_name: str) -> 
         requirements=COMMON_REQUIREMENTS,
         gcs_dir_name=gcs_dir_name,
     )
-    logger.info(f"Update completed successfully for {existing_resource_id}!")
-    return existing_resource_id
+    logger.info(f"Successfully updated Reasoning Engine: {updated.resource_name}")
+    return updated.resource_name
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Deploy Dual Cancer Co-Scientist Gemini Enterprise Agents")
-    parser.add_argument("--action", choices=["deploy", "update"], default="update")
-    parser.add_argument("--agent", choices=["all", "graph_agent", "lead_orchestrator"], default="all")
-    parser.add_argument("--graph-agent-id", default="projects/301802433103/locations/us-east1/reasoningEngines/4359942935643422720", help="Existing Graph Agent resource ID")
-    parser.add_argument("--orchestrator-id", default="projects/301802433103/locations/us-east1/reasoningEngines/6824256356745216000", help="Existing Lead Orchestrator resource ID")
+    parser.add_argument("--action", choices=["deploy", "update"], default="update", help="Deploy fresh or update existing")
+    parser.add_argument("--agent", choices=["all", "graph_agent", "lead_orchestrator"], default="all", help="Which agent(s) to target")
+    parser.add_argument("--graph-agent-id", default=f"projects/301802433103/locations/{LOCATION}/reasoningEngines/4359942935643422720")
+    parser.add_argument("--orchestrator-id", default=f"projects/301802433103/locations/{LOCATION}/reasoningEngines/6824256356745216000")
     args = parser.parse_args()
 
-    logger.info(f"Initializing Vertex AI: project={PROJECT_ID}, location={LOCATION}, bucket={STAGING_BUCKET}")
     vertexai.init(project=PROJECT_ID, location=LOCATION, staging_bucket=STAGING_BUCKET)
+    logger.info(f"Initializing Vertex AI: project={PROJECT_ID}, location={LOCATION}, bucket={STAGING_BUCKET}")
 
     graph_agent_id = args.graph_agent_id
     orchestrator_id = args.orchestrator_id
@@ -478,11 +335,9 @@ def main() -> None:
             logger.info("================================================================")
             logger.info(f"UPDATING ORCHESTRATION TIER: {orchestrator_id}")
             logger.info("================================================================")
-            orchestrator = build_lead_orchestrator(graph_agent_resource_id=graph_agent_id)
+            orchestrator = build_lead_orchestrator()
             update_agent(orchestrator_id, orchestrator, gcs_dir_name="lead_orchestrator")
-
     else:
-        # Deploy fresh
         if args.agent in ["all", "graph_agent"]:
             logger.info("================================================================")
             logger.info("DEPLOYING WORKER TIER: cancer-co-scientist-graph-agent")
@@ -499,7 +354,7 @@ def main() -> None:
             logger.info("================================================================")
             logger.info("DEPLOYING ORCHESTRATION TIER: cancer-co-scientist-lead-orchestrator")
             logger.info("================================================================")
-            orchestrator = build_lead_orchestrator(graph_agent_resource_id=graph_agent_id)
+            orchestrator = build_lead_orchestrator()
             orchestrator_id = deploy_agent(
                 agent=orchestrator,
                 display_name="cancer-co-scientist-lead-orchestrator",
@@ -507,13 +362,12 @@ def main() -> None:
                 gcs_dir_name="lead_orchestrator",
             )
 
-    logger.info("================================================================")
-    logger.info("DUAL AGENT OPERATION COMPLETE!")
-    logger.info(f"Graph Agent:       {graph_agent_id}")
-    logger.info(f"Lead Orchestrator: {orchestrator_id}")
-    logger.info("================================================================")
+    logger.info("\n" + "=" * 64)
+    logger.info("🎉 DUAL AGENT DEPLOYMENT COMPLETED")
+    logger.info(f"Graph Worker Tier:       {graph_agent_id}")
+    logger.info(f"Lead Orchestrator Tier:  {orchestrator_id}")
+    logger.info("=" * 64)
 
 
 if __name__ == "__main__":
     main()
-

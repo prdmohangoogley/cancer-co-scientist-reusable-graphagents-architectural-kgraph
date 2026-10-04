@@ -98,97 +98,122 @@ graph TD
 
 ---
 
-## 3. Vertex AI Experiment Registration Contract
+## 3. Vertex AI Agent Platform Evaluation & Experiment Lifecycle Contract
 
-Evaluation experiments must be registered using the official `google.cloud.aiplatform` SDK, binding runs to the Agent Engine metadata context:
+### 3.1 Architecture: Agent Platform Evaluation vs. Traditional ML Experiments
+A common architectural pitfall is confusing traditional Vertex AI ML Experiments (`aiplatform.Experiment` targeting `metadataStores/default`) with the native **Google Cloud Agent Platform Evaluation Control Plane** (`/agent-platform/runtimes/.../evaluation`):
+- **Traditional ML Experiments (`vertexai.evaluation.EvalTask`)**: Writes runs into Vertex AI Model Evaluation / Metadata store, which does **not** populate the Agent Platform Runtime console.
+- **Agent Platform Control Plane (`agentplatform.Client`)**: 
+  - `EvaluationExperiment` resources (e.g., `projects/.../locations/us-east1/evaluationExperiments/{id}`) act as administrative containers.
+  - **Draft State Resolution**: When an `EvaluationExperiment` has zero runs (`evaluation_runs: None`), the Agent Platform console displays its status as **Draft**.
+  - **Active State Transition**: An experiment transitions out of Draft as soon as a native `EvaluationRun` is created and bound to it via `client.evals.create_evaluation_run()`.
 
+### 3.2 Predefined Agent Evaluation Rubric Metrics
+The Agent Platform dashboard displays scorecards for the 4 core predefined agent evaluation rubrics:
+1. `tool_use_quality_v1`: Evaluates whether the agent selected the appropriate tool from the 15-algorithm matrix and invoked it with valid arguments.
+2. `multi_turn_task_success_v1`: Evaluates whether the multi-turn clinical goal was achieved across consecutive user turns.
+3. `multi_turn_tool_use_quality_v1`: Evaluates tool invocation efficiency, sequence correctness, and minimal redundant hops.
+4. `final_response_quality_v1`: Evaluates groundedness against PrimeKG biomedical facts, clinical relevance, and Level 1A guidelines compliance.
+
+### 3.3 Native Agent Platform SDK Registration Code Contract
 ```python
-import google.cloud.aiplatform as aip
+from agentplatform import Client, types
+import pandas as pd
 
 PROJECT_ID = "fivedaysai-prd-sandbox-317383"
 LOCATION = "us-east1"
-AGENT_ENGINE_ID = "4359942935643422720"
+AGENT_RESOURCE_NAME = "projects/301802433103/locations/us-east1/reasoningEngines/4359942935643422720"
+STAGING_BUCKET = "gs://fivedaysai-prd-sandbox-317383-vertex-agent-staging"
 
-EXPERIMENT_CATEGORIES = [
-    "graph-agent-discrete-algorithms",
-    "graph-agent-structural-centrality",
-    "graph-agent-continuous-simulation",
-    "graph-agent-temporal-omics",
-]
+client = Client(project=PROJECT_ID, location=LOCATION)
 
-def register_category_run(category_name: str, run_name: str, metrics: dict, params: dict):
-    aip.init(
-        project=PROJECT_ID,
-        location=LOCATION,
-        experiment=category_name,
-        experiment_description=f"Cancer Co-Scientist GraphAgent Evals: {category_name}",
+def create_categorized_evaluation_run(
+    category_name: str,
+    experiment_resource_name: str,
+    cases_df: pd.DataFrame,
+    timestamp: str,
+) -> str:
+    """Creates a native Agent Platform EvaluationRun linked to the EvaluationExperiment."""
+    eval_dataset = types.EvaluationDataset(eval_dataset_df=cases_df)
+    
+    metrics = [
+        types.EvaluationRunMetric(metric="tool_use_quality_v1"),
+        types.EvaluationRunMetric(metric="multi_turn_task_success_v1"),
+        types.EvaluationRunMetric(metric="multi_turn_tool_use_quality_v1"),
+        types.EvaluationRunMetric(metric="final_response_quality_v1"),
+    ]
+    
+    eval_run = client.evals.create_evaluation_run(
+        display_name=f"{category_name}-{timestamp}",
+        evaluation_experiment=experiment_resource_name,
+        dataset=eval_dataset,
+        metrics=metrics,
+        agent=AGENT_RESOURCE_NAME,
+        dest=f"{STAGING_BUCKET}/eval_runs/{category_name}/",
     )
-    with aip.start_run(run_name=run_name):
-        aip.log_params({
-            "agent_engine_id": AGENT_ENGINE_ID,
-            "runtime_region": LOCATION,
-            **params,
-        })
-        aip.log_metrics(metrics)
+    return eval_run.name
 ```
 
 ---
 
-## 4. OpenTelemetry GenAI v2.6+ Monitored Resource & Tool Span Contract
+## 4. ADK Request-Driven Telemetry & Pure Tool Architecture
 
-To resolve empty Models and Tools tabs, the OpenTelemetry provider must bind exact monitored resource attributes matching GCP's internal Reasoning Engine metrics filter:
-
-### 4.1 Monitored Resource Attributes
+### 4.1 Native ADK Tool Instrumentation Contract
+In Google ADK (`google-adk>=2.10.0`), the framework's internal caller (`google.adk.telemetry._caller`) automatically wraps every tool execution:
 ```python
-from opentelemetry.sdk.resources import Resource
+async with _instrumentation.record_tool_execution(tool, agent, function_args, ...) as tel_ctx:
+    output = await tool.run_async(...)
+```
+This native context:
+1. Spawns an OpenTelemetry child span named `execute_tool {tool.name}`.
+2. Sets semantic attributes: `gen_ai.tool.name = {tool.name}`, `gen_ai.agent.name = {agent.name}`, and `gen_ai.system = "vertexai"`.
+3. Calls `_metrics.record_tool_execution_duration()` on span exit.
 
-resource = Resource.create({
-    "gcp.resource_type": "aiplatform.googleapis.com/ReasoningEngine",
-    "aiplatform.googleapis.com/reasoning_engine_id": "4359942935643422720",
-    "aiplatform.googleapis.com/location": "us-east1",
-    "service.name": "cancer-co-scientist-graph-agent",
-    "service.namespace": "vertex-agent-engine",
-    "cloud.region": "us-east1",
-    "gcp.project_id": "fivedaysai-prd-sandbox-317383",
-})
+### 4.2 Closure Serialization Invariant & Pure Functions
+**Root Cause Forensics**: Wrapping tools in custom decorators (e.g. `@trace_tool` with `@functools.wraps`) produces Python closure cells (`__closure__`). When serialized via `cloudpickle` across different Python 3.11 runtimes, CPython's interpreter encounters cell unpacking errors:
+- `SystemError: Objects/listobject.c:2579: bad argument to internal function`
+- `ValueError: too many values to unpack (expected 1)` inside `FunctionTool._invoke_callable` -> `target(**args_to_call)`
+
+**Mandatory Rule**: All agent tools must be pure, undecorated top-level functions with explicit defaults and standard type hints. Custom span decorators are strictly prohibited; agents must rely entirely on ADK's native `record_tool_execution`.
+
+### 4.3 Request-Driven Metric Export on Agent Engine
+On Vertex AI Agent Engine (request-billed runtime), container CPU is throttled immediately upon request completion. Standard OpenTelemetry background periodic metric readers are starved of CPU between requests, dropping metrics.
+
+ADK solves this via `_RequestDrivenMetricReader` in `google.adk.telemetry._agent_engine`:
+1. Collects and flushes metrics directly on the request execution path before the connection closes.
+2. Activates only when `GOOGLE_CLOUD_AGENT_ENGINE_ENABLE_TELEMETRY="true"` is set in the runtime environment.
+3. Requires the `TelemetryAdkApp` template subclass:
+
+```python
+from vertexai.agent_engines.templates.adk import AdkApp
+
+class TelemetryAdkApp(AdkApp):
+    """ADK App template subclass enabling Vertex Agent Engine telemetry & experimental semconv."""
+
+    def set_up(self):
+        import os
+        os.environ["GOOGLE_CLOUD_AGENT_ENGINE_ENABLE_TELEMETRY"] = "true"
+        os.environ["OTEL_SEMCONV_STABILITY_OPT_IN"] = "gen_ai_latest_experimental"
+        os.environ["OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT"] = "EVENT_ONLY"
+        super().set_up()
 ```
 
-### 4.2 Standard GenAI Metric Instruments
-1. `gen_ai.client.operation.duration` (Histogram, seconds):
-   - Dimensions: `gen_ai.request.model`, `gen_ai.response.model`, `gen_ai.system="vertexai"`
-2. `gen_ai.client.token.usage` (Histogram, tokens):
-   - Dimensions: `gen_ai.token.type` (`input` vs `output`), `gen_ai.request.model`
-3. `gen_ai.server.request.duration` (Histogram, seconds):
-   - Dimensions: `http.response.status_code`, `rpc.method`
-4. `gen_ai.tool.duration` & `gen_ai.tool.call_count`:
-   - Dimensions: `gen_ai.tool.name` (`execute_discrete_graph_algorithm`, `explore_target_subgraph_neighborhood`, `analyze_structural_centrality_gatekeepers`, `validate_precision_oncology_pathway`)
-
-### 4.3 Tool Child Span Decorator
+### 4.4 Mandatory Telemetry Container Dependencies
 ```python
-from opentelemetry import trace
-
-tracer = trace.get_tracer("graphagent.tools")
-
-def trace_tool(tool_name: str):
-    def decorator(func):
-        def wrapper(*args, **kwargs):
-            with tracer.start_as_current_span(
-                f"gen_ai.tool.{tool_name}",
-                attributes={
-                    "gen_ai.tool.name": tool_name,
-                    "gen_ai.system": "vertexai",
-                },
-            ) as span:
-                try:
-                    res = func(*args, **kwargs)
-                    span.set_attribute("gen_ai.tool.status", "success")
-                    return res
-                except Exception as e:
-                    span.set_attribute("gen_ai.tool.status", "error")
-                    span.record_exception(e)
-                    raise
-        return wrapper
-    return decorator
+COMMON_REQUIREMENTS = [
+    "google-adk>=2.10.0",
+    "opentelemetry-api>=1.26.0",
+    "opentelemetry-sdk>=1.26.0",
+    "opentelemetry-exporter-otlp-proto-http>=1.26.0",
+    "opentelemetry-exporter-gcp-logging>=1.6.0",
+    "opentelemetry-exporter-gcp-trace>=1.6.0",
+    "opentelemetry-exporter-gcp-monitoring>=1.6.0",
+    "opentelemetry-instrumentation-google-genai<=1.1b0",
+    "google-cloud-aiplatform>=2.3.0",
+    "google-genai>=2.26.0",
+    "pydantic>=2.0.0",
+    "networkx>=3.0",
+]
 ```
 
 ---
