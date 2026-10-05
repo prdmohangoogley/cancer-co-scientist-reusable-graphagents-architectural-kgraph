@@ -1996,3 +1996,126 @@ body {
   background: #f59e0b;
 }
 
+/* Human-in-the-Loop (HITL) Confirmation Card Styles */
+.hitl-approval-card {
+  border-left: 4px solid var(--primary-accent);
+  background: #111827;
+}
+
+.hitl-approval-card.critical {
+  border-left-color: #ef4444;
+  border-top: 1px solid rgba(239, 68, 68, 0.4);
+}
+
+.hitl-approval-card.warning {
+  border-left-color: #f59e0b;
+  border-top: 1px solid rgba(245, 158, 11, 0.4);
+}
+
+.hitl-body {
+  display: flex;
+  flex-direction: column;
+  gap: 0.9rem;
+  padding: 1rem 0;
+}
+
+.hitl-proposed-action {
+  background: rgba(30, 41, 59, 0.6);
+  padding: 0.75rem 1rem;
+  border-radius: 6px;
+  font-size: 0.95rem;
+  color: #f1f5f9;
+}
+
+.hitl-rationale-box {
+  background: rgba(15, 23, 42, 0.7);
+  border: 1px solid rgba(148, 163, 184, 0.2);
+  padding: 0.75rem 1rem;
+  border-radius: 6px;
+  font-size: 0.88rem;
+  color: #cbd5e1;
+  line-height: 1.5;
+}
+
+.hitl-params-section {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+}
+
+.hitl-params-title {
+  font-size: 0.8rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  color: #94a3b8;
+  letter-spacing: 0.05em;
+}
+
+.hitl-params-code {
+  background: #0f172a;
+  border: 1px solid #1e293b;
+  padding: 0.6rem 0.8rem;
+  border-radius: 6px;
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  color: #38bdf8;
+  overflow-x: auto;
+  margin: 0;
+}
+
+.hitl-status-banner {
+  padding: 0.5rem 0.8rem;
+  border-radius: 6px;
+  font-size: 0.82rem;
+  font-weight: 600;
+  background: rgba(245, 158, 11, 0.15);
+  color: #fbbf24;
+  border: 1px solid rgba(245, 158, 11, 0.3);
+}
+
+.hitl-status-banner.approved {
+  background: rgba(16, 185, 129, 0.15);
+  color: #34d399;
+  border-color: rgba(16, 185, 129, 0.3);
+}
+
+.hitl-status-banner.rejected {
+  background: rgba(239, 68, 68, 0.15);
+  color: #f87171;
+  border-color: rgba(239, 68, 68, 0.3);
+}
+
+.hitl-status-banner.error {
+  background: rgba(239, 68, 68, 0.2);
+  color: #fca5a5;
+  border-color: #ef4444;
+}
+
+.hitl-actions-bar {
+  display: flex;
+  gap: 0.75rem;
+  margin-top: 0.5rem;
+}
+
+.hitl-btn {
+  padding: 0.6rem 1.2rem;
+  font-size: 0.85rem;
+  font-weight: 600;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.btn-success {
+  background: #10b981 !important;
+  color: white !important;
+  border-color: #059669 !important;
+}
+
+.btn-danger {
+  background: #ef4444 !important;
+  color: white !important;
+  border-color: #dc2626 !important;
+}
+
+

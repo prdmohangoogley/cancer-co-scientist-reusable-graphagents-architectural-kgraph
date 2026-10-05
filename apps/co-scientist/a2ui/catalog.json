@@ -286,6 +286,36 @@
         }
       },
       "required": ["title", "nodes", "edges"]
+    },
+    "ConfirmationDialog": {
+      "description": "High-stakes clinical action human-in-the-loop approval card (DOC-02, DOC-03 compliant)",
+      "properties": {
+        "title": { "type": "string" },
+        "component_id": { "type": "string" },
+        "action_id": { "type": "string" },
+        "severity": { "type": "string", "enum": ["info", "warning", "critical"] },
+        "risk_level": { "type": "string", "enum": ["LOW", "MEDIUM", "HIGH", "CRITICAL"] },
+        "proposed_action": { "type": "string" },
+        "clinical_rationale": { "type": "string" },
+        "parameters": { "type": "object" },
+        "status": { "type": "string", "enum": ["PENDING", "APPROVED", "REJECTED", "EXPIRED"] },
+        "expires_at": { "type": "string" },
+        "actions": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "label": { "type": "string" },
+              "action": { "type": "string", "enum": ["APPROVE", "REJECT"] },
+              "style": { "type": "string" },
+              "endpoint": { "type": "string" },
+              "method": { "type": "string" }
+            },
+            "required": ["label", "action", "endpoint"]
+          }
+        }
+      },
+      "required": ["action_id", "proposed_action", "clinical_rationale", "risk_level"]
     }
   }
 }

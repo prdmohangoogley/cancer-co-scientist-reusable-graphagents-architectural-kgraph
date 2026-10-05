@@ -30,10 +30,17 @@ logger = logging.getLogger("graph_algorithms")
 
 
 class AlgorithmResult(BaseModel):
-    """Encapsulates the computation result of a graph algorithm."""
+    """Encapsulates the computation result of a graph algorithm.
+
+    Conforms to DOC-01 and Spec 15 §2 error contract standards.
+    """
     algorithm_name: str
     workflow_type: str  # Discrete, Structural, Continuous, Temporal
     target_entity: str
+    status: str = "SUCCESS"  # 'SUCCESS', 'RECOVERABLE_ERROR', 'CRITICAL_FAILURE'
+    error_type: Optional[str] = None
+    error_message: Optional[str] = None
+    recovery_instruction: Optional[str] = None
     metrics: dict[str, Any] = Field(default_factory=dict)
     paths: list[list[str]] = Field(default_factory=list)
     nodes: list[str] = Field(default_factory=list)
@@ -45,6 +52,29 @@ class AlgorithmResult(BaseModel):
     def visited_entities(self) -> list[str]:
         """Return the unique entities/nodes visited or contained in the result."""
         return self.nodes
+
+    @classmethod
+    def recoverable_error(
+        cls,
+        algorithm_name: str,
+        workflow_type: str,
+        target_entity: str,
+        error_type: str,
+        error_message: str,
+        recovery_instruction: str,
+    ) -> AlgorithmResult:
+        """Constructs a structured recoverable error payload with actionable guidance for the LLM."""
+        return cls(
+            algorithm_name=algorithm_name,
+            workflow_type=workflow_type,
+            target_entity=target_entity,
+            status="RECOVERABLE_ERROR",
+            error_type=error_type,
+            error_message=error_message,
+            recovery_instruction=recovery_instruction,
+            summary=f"Recoverable error in {algorithm_name}: {error_message}. Recovery instruction: {recovery_instruction}",
+        )
+
 
 
 class GraphAlgorithmEngine:
@@ -66,7 +96,41 @@ class GraphAlgorithmEngine:
         max_depth: int = 2,
         limit: int = 50,
     ) -> AlgorithmResult:
-        """Execute DFS or BFS traversal from a source node using GQL path exploration."""
+        """Execute DFS or BFS traversal from a source node using GQL path exploration.
+
+        Traverses multi-hop biological networks to discover signaling cascades, interaction
+        partners, and downstream phenotypic targets up to the specified hop limit.
+
+        Args:
+            source_entity (str): Root focal entity or HGNC gene symbol (e.g. 'EGFR', 'KRAS').
+            mode (str): Traversal discipline: 'BFS' (breadth-first) or 'DFS' (depth-first). Defaults to 'BFS'.
+            max_depth (int): Maximum hop horizon limit (1 to 4). Defaults to 2.
+            limit (int): Maximum neighborhood records to query from Spanner. Defaults to 50.
+
+        Returns:
+            AlgorithmResult: Structured result containing visited nodes, traversal paths, edge
+                tuples, and summary metrics. Returns status='RECOVERABLE_ERROR' with guidance if
+                source_entity is invalid or depth is out of bounds.
+        """
+        if not source_entity or not source_entity.strip():
+            return AlgorithmResult.recoverable_error(
+                algorithm_name=f"{mode.upper()}_Traversal",
+                workflow_type="Discrete",
+                target_entity="UNKNOWN",
+                error_type="EmptySourceEntityException",
+                error_message="source_entity cannot be empty.",
+                recovery_instruction="Provide a valid HGNC gene symbol (e.g. 'EGFR', 'TP53') or drug name.",
+            )
+        if max_depth < 1 or max_depth > 4:
+            return AlgorithmResult.recoverable_error(
+                algorithm_name=f"{mode.upper()}_Traversal",
+                workflow_type="Discrete",
+                target_entity=source_entity,
+                error_type="DepthOutOfBoundsException",
+                error_message=f"max_depth {max_depth} is outside allowed range [1, 4].",
+                recovery_instruction="Set max_depth between 1 and 4 hops (recommended: 2).",
+            )
+
         visited: list[str] = [source_entity]
         paths: list[list[str]] = []
         edges_out: list[dict[str, Any]] = []
@@ -121,7 +185,30 @@ class GraphAlgorithmEngine:
         target_entity: str,
         heuristic_vectors: Optional[dict[str, list[float]]] = None,
     ) -> AlgorithmResult:
-        """Calculate weighted shortest path using Dijkstra or A* with vector search heuristic."""
+        """Calculate weighted shortest path using Dijkstra or A* with vector search heuristic.
+
+        Computes optimal low-cost resistance or activation chains connecting a genomic biomarker
+        to an inhibitor or secondary resistance node.
+
+        Args:
+            source_entity (str): Starting gene symbol or protein entity (e.g. 'EGFR').
+            target_entity (str): Destination target, inhibitor compound, or resistance marker (e.g. 'Osimertinib').
+            heuristic_vectors (Optional[dict[str, list[float]]]): Optional dictionary of precomputed entity
+                embeddings used to guide A* directional search.
+
+        Returns:
+            AlgorithmResult: Traversal path with lowest cumulative weight, hop count, and summary.
+                Returns status='RECOVERABLE_ERROR' if either entity is missing.
+        """
+        if not source_entity or not source_entity.strip() or not target_entity or not target_entity.strip():
+            return AlgorithmResult.recoverable_error(
+                algorithm_name="Dijkstra",
+                workflow_type="Discrete",
+                target_entity=f"{source_entity} -> {target_entity}",
+                error_type="MissingEntityException",
+                error_message="Both source_entity and target_entity are required for shortest path calculation.",
+                recovery_instruction="Provide both source and target symbols (e.g. source_entity='EGFR', target_entity='Osimertinib').",
+            )
         G = nx.DiGraph()
 
         # Build local oncology graph context
@@ -177,7 +264,31 @@ class GraphAlgorithmEngine:
         initial_path: list[str],
         mutated_edges: dict[tuple[str, str], float],
     ) -> AlgorithmResult:
-        """Incremental replanning (D* Lite) when interaction weights mutate in real-time."""
+        """Incremental replanning (D* Lite) when interaction weights mutate in real-time.
+
+        Efficiently updates biological paths when secondary resistance mutations (e.g. EGFR T790M
+        or C797S) invalidate existing pathways, finding alternative bypass signaling routes.
+
+        Args:
+            source_entity (str): Root receptor or initiating driver mutation (e.g. 'EGFR').
+            target_entity (str): Destination therapeutic node or downstream target (e.g. 'Osimertinib').
+            initial_path (list[str]): Previously established traversal path.
+            mutated_edges (dict[tuple[str, str], float]): Edge weight mutations reflecting altered
+                binding affinity or resistance blocks.
+
+        Returns:
+            AlgorithmResult: Repaired pathway routing around resistant or blocked interactions.
+        """
+        if not source_entity or not target_entity or not initial_path:
+            return AlgorithmResult.recoverable_error(
+                algorithm_name="D*_Lite_Incremental",
+                workflow_type="Discrete",
+                target_entity=f"{source_entity} -> {target_entity}",
+                error_type="MissingParametersException",
+                error_message="source_entity, target_entity, and initial_path are all required for D* Lite.",
+                recovery_instruction="Provide initial_path as a non-empty list of entity identifiers.",
+            )
+
         G = nx.DiGraph()
         # Default edges
         for i in range(len(initial_path) - 1):
@@ -219,7 +330,17 @@ class GraphAlgorithmEngine:
         nodes: Optional[list[str]] = None,
         edges: Optional[list[tuple[str, str]]] = None,
     ) -> AlgorithmResult:
-        """Identify Strongly (SCC) and Weakly (WCC) Connected Components."""
+        """Identify Strongly (SCC) and Weakly (WCC) Connected Components.
+
+        Partitions interactomes into isolated modules or cross-talking functional subgraphs.
+
+        Args:
+            nodes (Optional[list[str]]): List of node identifiers to evaluate.
+            edges (Optional[list[tuple[str, str]]]): Directed edge pairs representing interactions.
+
+        Returns:
+            AlgorithmResult: Component counts, largest module sizes, and module node sets.
+        """
         G = nx.DiGraph()
         if nodes and edges:
             G.add_nodes_from(nodes)
@@ -255,7 +376,16 @@ class GraphAlgorithmEngine:
         self,
         signaling_dag: Optional[list[tuple[str, str]]] = None,
     ) -> AlgorithmResult:
-        """Linearize directed acyclic signaling cascades to trace biological execution order."""
+        """Linearize directed acyclic signaling cascades to trace biological execution order.
+
+        Establishes upstream-to-downstream kinase activation chains and signal transduction paths.
+
+        Args:
+            signaling_dag (Optional[list[tuple[str, str]]]): Directed edge tuples defining the signaling DAG.
+
+        Returns:
+            AlgorithmResult: Linearized execution sequence, DAG validity status, and cascade depth.
+        """
         G = nx.DiGraph()
         edges = signaling_dag or [
             ("Receptor_EGFR", "Adapter_GRB2"),
@@ -291,7 +421,27 @@ class GraphAlgorithmEngine:
         source_gene: str,
         edges: Optional[list[tuple[str, str]]] = None,
     ) -> AlgorithmResult:
-        """Compute transitive reachability to identify all downstream phenotypes and targets."""
+        """Compute transitive reachability to identify all downstream phenotypes and targets.
+
+        Traverses entire downstream reachability tree from a mutant oncogene to all affected phenotypes.
+
+        Args:
+            source_gene (str): Root mutant oncogene or drug target (e.g. 'EGFR', 'KRAS').
+            edges (Optional[list[tuple[str, str]]]): Directed interaction edges.
+
+        Returns:
+            AlgorithmResult: Reachable phenotypic entities and total downstream count.
+        """
+        if not source_gene or not source_gene.strip():
+            return AlgorithmResult.recoverable_error(
+                algorithm_name="TransitiveClosureReachability",
+                workflow_type="Discrete",
+                target_entity="UNKNOWN",
+                error_type="EmptyGeneException",
+                error_message="source_gene cannot be empty.",
+                recovery_instruction="Specify a root oncogene symbol (e.g. 'EGFR', 'BRAF').",
+            )
+
         G = nx.DiGraph()
         edge_list = edges or [
             (source_gene, "Pathway_MAPK"),
@@ -319,7 +469,16 @@ class GraphAlgorithmEngine:
         self,
         edges: Optional[list[tuple[str, str]]] = None,
     ) -> AlgorithmResult:
-        """Execute Label Propagation community detection to discover co-functional disease modules."""
+        """Execute Label Propagation community detection to discover co-functional disease modules.
+
+        Identifies tightly coupled protein complexes and cancer driver functional modules.
+
+        Args:
+            edges (Optional[list[tuple[str, str]]]): Graph edge interactions to partition.
+
+        Returns:
+            AlgorithmResult: Partitioned communities, module sizes, and membership lists.
+        """
         G = nx.Graph()
         edge_list = edges or [
             ("EGFR", "ERBB2"), ("ERBB2", "ERBB3"), ("EGFR", "ERBB3"),  # HER Family
@@ -348,7 +507,26 @@ class GraphAlgorithmEngine:
         k_hops: int = 1,
         limit: int = 25,
     ) -> AlgorithmResult:
-        """Extract k-hop ego-network around a focal drug, gene, or patient node."""
+        """Extract k-hop ego-network around a focal drug, gene, or patient node.
+
+        Args:
+            focal_node (str): Central node to center the ego-network around (e.g. 'EGFR').
+            k_hops (int): Radius of ego network in hops (1 to 3). Defaults to 1.
+            limit (int): Maximum neighbor limit to retrieve from Spanner. Defaults to 25.
+
+        Returns:
+            AlgorithmResult: Ego neighborhood subgraph with nodes, edges, and hop counts.
+        """
+        if not focal_node or not focal_node.strip():
+            return AlgorithmResult.recoverable_error(
+                algorithm_name="EgoNetworkInspection",
+                workflow_type="Discrete",
+                target_entity="UNKNOWN",
+                error_type="EmptyNodeException",
+                error_message="focal_node cannot be empty.",
+                recovery_instruction="Provide a valid HGNC gene symbol (e.g. 'EGFR', 'TP53') or drug name.",
+            )
+
         if self.gql_tool and not self.use_mock:
             subgraph = await self.gql_tool.query_gene_neighborhood(focal_node, limit=limit)
             nodes = [n.name for n in subgraph.nodes]
@@ -385,7 +563,28 @@ class GraphAlgorithmEngine:
         gene_symbol: str,
         threshold_degree: int = 5,
     ) -> AlgorithmResult:
-        """Evaluate degree centrality, PageRank, and betweenness to flag Hubs and Gatekeepers."""
+        """Evaluate degree centrality, PageRank, and betweenness to flag Hubs and Gatekeepers.
+
+        Analyzes structural importance to differentiate high-degree hub proteins (e.g. TP53, EGFR)
+        from critical bottleneck gatekeepers bridging oncogenic subnetworks.
+
+        Args:
+            gene_symbol (str): Canonical HGNC gene symbol (e.g. 'TP53', 'EGFR', 'KRAS').
+            threshold_degree (int): Minimum degree connectivity to qualify as a hub. Defaults to 5.
+
+        Returns:
+            AlgorithmResult: Centrality metrics (PageRank, Betweenness, Degree) and driver status.
+        """
+        if not gene_symbol or not gene_symbol.strip():
+            return AlgorithmResult.recoverable_error(
+                algorithm_name="NodeCentrality_PageRank_Betweenness",
+                workflow_type="Structural",
+                target_entity="UNKNOWN",
+                error_type="EmptyGeneSymbolException",
+                error_message="gene_symbol cannot be empty.",
+                recovery_instruction="Specify a valid HGNC gene symbol (e.g. 'TP53', 'EGFR', 'MYC').",
+            )
+
         known_hub_degrees = {
             "TP53": 128,
             "EGFR": 94,
@@ -422,7 +621,18 @@ class GraphAlgorithmEngine:
         nodes: Optional[list[str]] = None,
         edges: Optional[list[tuple[str, str]]] = None,
     ) -> AlgorithmResult:
-        """Compute graph density and identify single points of failure (Bridges / Cut-Vertices)."""
+        """Compute graph density and identify single points of failure (Bridges / Cut-Vertices).
+
+        Calculates network cohesion and isolates vulnerable interactions that if targeted,
+        collapse the disease signaling subnetwork.
+
+        Args:
+            nodes (Optional[list[str]]): List of biological entity names in the subnetwork.
+            edges (Optional[list[tuple[str, str]]]): Undirected/directed interaction edge pairs.
+
+        Returns:
+            AlgorithmResult: Density score, identified topological bridges, and cut-vertex nodes.
+        """
         G = nx.Graph()
         if nodes and edges:
             G.add_nodes_from(nodes)
@@ -470,7 +680,26 @@ class GraphAlgorithmEngine:
 
         Dispatches to GKE compute pods or gracefully degrades with heuristic topological
         binding metrics when offline, in mock mode, or if GKE communication fails.
+
+        Args:
+            protein_id (str): Target receptor UniProt ID or gene symbol (e.g. 'EGFR', 'P00533').
+            ligand_smiles (str): Chemical structure of inhibitor or small molecule in SMILES notation.
+            num_samples (int): Continuous sampling budget for OMPL motion planner. Defaults to 1000.
+            gke_endpoint (Optional[str]): GKE biomedical HPC endpoint URL for distributed dispatch.
+
+        Returns:
+            AlgorithmResult: Docking simulation payload, binding affinity (kcal/mol), and status.
         """
+        if not protein_id or not protein_id.strip():
+            return AlgorithmResult.recoverable_error(
+                algorithm_name="AlphaFoldDockingPlanner",
+                workflow_type="Continuous",
+                target_entity="UNKNOWN",
+                error_type="EmptyProteinIdException",
+                error_message="protein_id cannot be empty.",
+                recovery_instruction="Specify a target receptor symbol or UniProt ID (e.g. 'EGFR', 'BRAF').",
+            )
+
         sim_payload = {
             "engine": "OMPL-RRT*",
             "target_protein": protein_id,
@@ -557,7 +786,28 @@ class GraphAlgorithmEngine:
 
         Dispatches to GKE compute pods or gracefully degrades with heuristic topological
         swarming metrics when offline, in mock mode, or if GKE communication fails.
+
+        Args:
+            tumor_type (str): Tumor microenvironment phenotype or histology (e.g. 'Glioblastoma', 'NSCLC').
+            num_cells (int): Total simulated agent cells in tumor spheroid. Defaults to 5000.
+            cohesion (float): Cell-cell adhesion attraction coefficient (0.0 to 1.0). Defaults to 0.8.
+            separation (float): Contact inhibition avoidance coefficient (0.0 to 1.0). Defaults to 0.5.
+            alignment (float): Directed chemotaxis migration alignment (0.0 to 1.0). Defaults to 0.3.
+            gke_endpoint (Optional[str]): GKE endpoint URL for agent-based execution.
+
+        Returns:
+            AlgorithmResult: Swarming packing fraction, invasion velocity, and simulation parameters.
         """
+        if not tumor_type or not tumor_type.strip():
+            return AlgorithmResult.recoverable_error(
+                algorithm_name="PhysiCellSwarmSimulation",
+                workflow_type="Continuous",
+                target_entity="UNKNOWN",
+                error_type="EmptyTumorTypeException",
+                error_message="tumor_type cannot be empty.",
+                recovery_instruction="Specify a tumor type or histology (e.g. 'Glioblastoma', 'Lung Adenocarcinoma').",
+            )
+
         sim_payload = {
             "engine": "PhysiCell-AgentBased",
             "tumor_microenvironment": tumor_type,
@@ -649,7 +899,26 @@ class GraphAlgorithmEngine:
         target_timestamp: str,
         time_window_days: int = 30,
     ) -> AlgorithmResult:
-        """Filter interval-timestamped edges to track disease progression over time."""
+        """Filter interval-timestamped edges to track disease progression over time.
+
+        Args:
+            source_entity (str): Biomarker or patient focal entity (e.g. 'EGFR').
+            target_timestamp (str): Target query timestamp in ISO YYYY-MM-DD format (e.g. '2025-06-01').
+            time_window_days (int): Temporal window around target timestamp in days. Defaults to 30.
+
+        Returns:
+            AlgorithmResult: Active interactions valid at target timestamp, persistence, and summary.
+        """
+        if not source_entity or not source_entity.strip():
+            return AlgorithmResult.recoverable_error(
+                algorithm_name="TemporalEdgeFiltering",
+                workflow_type="Temporal",
+                target_entity="UNKNOWN",
+                error_type="EmptySourceEntityException",
+                error_message="source_entity cannot be empty.",
+                recovery_instruction="Specify an entity identifier (e.g. 'EGFR', 'KRAS').",
+            )
+
         # Simulated interval-timestamped clinical evidence edges
         historical_edges = [
             {"source": source_entity, "target": "Resistance_Mutation_T790M", "valid_from": "2025-01-01", "valid_to": "2025-06-30"},
@@ -677,7 +946,17 @@ class GraphAlgorithmEngine:
         self,
         slice_densities: Optional[list[float]] = None,
     ) -> AlgorithmResult:
-        """Compute rolling Algebraic Connectivity (λ2, Fiedler value) across temporal windows."""
+        """Compute rolling Algebraic Connectivity (λ2, Fiedler value) across temporal windows.
+
+        Calculates network spectral robustness to monitor whether the tumor interaction network
+        is maintaining coherence or fragmenting under targeted pharmacological pressure.
+
+        Args:
+            slice_densities (Optional[list[float]]): Sequential density measurements across time windows.
+
+        Returns:
+            AlgorithmResult: Algebraic connectivity λ2, fragmentation warning level, and network stability.
+        """
         # Laplacian second smallest eigenvalue indicates graph robustness
         G = nx.path_graph(6)  # Linear graph baseline
         lambda_2 = float(nx.algebraic_connectivity(G))
@@ -706,7 +985,19 @@ class GraphAlgorithmEngine:
         edges: list[tuple[str, str]],
         layout: str = "hierarchical_dag",
     ) -> AlgorithmResult:
-        """Generate structured JSON AST / A2UI payload for 2D Hierarchical DAGs or 3D HUDs."""
+        """Generate structured JSON AST / A2UI payload for 2D Hierarchical DAGs or 3D HUDs.
+
+        Conforms strictly to DOC-03 declarative non-executable schema.
+
+        Args:
+            nodes (list[str]): List of biological entity identifiers to render as graph nodes.
+            edges (list[tuple[str, str]]): List of directed edge pairs connecting nodes.
+            layout (str): Visual layout discipline ('hierarchical_dag', 'force_directed', 'radial').
+                Defaults to 'hierarchical_dag'.
+
+        Returns:
+            AlgorithmResult: Declarative visualization AST containing node coordinates, links, and layout.
+        """
         ast = {
             "type": "A2UI_GRAPH_AST",
             "version": "1.0.0",
@@ -730,3 +1021,4 @@ class GraphAlgorithmEngine:
             visualization_ast=ast,
             summary=f"Generated {layout} A2UI visualization AST with {len(nodes)} nodes and {len(edges)} links.",
         )
+

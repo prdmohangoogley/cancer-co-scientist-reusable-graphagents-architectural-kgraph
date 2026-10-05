@@ -54,7 +54,7 @@ graph TD
 1. **Autonomous A2A Agent Identity**: The Worker Tier is packaged and deployed as an independent Gemini Enterprise Agent (`cancer-co-scientist-graph-agent`) on Vertex AI Agent Engine, exporting `agent.py:root_agent` and publishing its Agent Card at `/.well-known/agent-card.json`.
 2. **Headless Execution**: The Worker Tier must NEVER generate HTML, CSS, or executable UI code. It emits only typed Pydantic payloads over A2A.
 3. **Deterministic ISO GQL Parameterization**: All Spanner Graph queries must strictly utilize named parameters (`@source_entity`, `@target_entity`, `@limit`) to prevent injection and maximize Spanner query plan cache hit rates.
-4. **Resilient Offline / Mock Fallback**: Tools must support zero-credential mock mode for offline local development and deterministic CI/CD unit testing.
+4. **Tool Contract Integrity & LLM Recovery Instructions (DOC-01)**: All tools must supply exhaustive parameter docstrings (`Args:`, `Returns:`, validation bounds) and return structured recovery payloads (`status='RECOVERABLE_ERROR'`, `error_type`, `recovery_instruction`) on missing entities, invalid arguments, or query timeouts rather than raising uncaught exceptions or returning silent mocks.
 5. **Zero Ambient Authority (ZAA) (DOC-02)**: Database clients authenticate with explicitly scoped IAM tokens (`roles/spanner.databaseReader`, `roles/bigquery.dataViewer`). Ambient metadata service credentials must never be exposed to agent prompt contexts.
 
 ---

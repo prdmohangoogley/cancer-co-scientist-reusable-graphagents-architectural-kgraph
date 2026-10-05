@@ -46,6 +46,14 @@ from .memory_bank import (
 )
 from .router import IntentRouter, IntentType, RoutingDecision
 from .visualization_agent import GraphVisualizationAgent
+from .hitl import (
+    ActionType,
+    ApprovalStatus,
+    ClinicalAction,
+    ClinicalActionApprovalManager,
+    RiskLevel,
+    clinical_approval_manager,
+)
 
 # Worker Tier & Algorithm imports
 try:
@@ -528,6 +536,50 @@ class CancerCoScientistOrchestrator:
             agent_response=summary_text,
         )
 
+        # 6b. Human-in-the-Loop (HITL) Gatekeeper Check (DOC-02 / Spec 15 §3)
+        query_lower = query.lower()
+        high_stakes_keywords = [
+            "off-label", "experimental", "trial enrollment", "modify regimen",
+            "high toxicity", "simulate docking", "docking job", "physicell",
+            "radiation", "delete hypothesis", "delete entity", "mutation edit"
+        ]
+        if any(k in query_lower for k in high_stakes_keywords):
+            act_type = (
+                ActionType.OFF_LABEL_THERAPY_RECOMMENDATION.value
+                if "off-label" in query_lower
+                else ActionType.EXPERIMENTAL_CLINICAL_TRIAL_ENROLLMENT.value
+                if any(t in query_lower for t in ["trial", "enrollment", "investigational"])
+                else ActionType.EXPENSIVE_CLUSTER_SIMULATION.value
+                if any(s in query_lower for s in ["docking", "physicell", "simulation"])
+                else ActionType.HIGH_TOXICITY_REGIMEN_MODIFICATION.value
+            )
+            hitl_action = clinical_approval_manager.create_action(
+                action_type=act_type,
+                proposed_action=f"Clinical decision / intervention proposed from query: {query}",
+                clinical_rationale=f"Genomic and pharmacological evidence evaluated via {decision.recommended_algorithm}.",
+                risk_level=RiskLevel.HIGH.value if "toxicity" not in query_lower else RiskLevel.CRITICAL.value,
+                session_id=sid,
+                parameters={"query": query, "algorithm": decision.recommended_algorithm, "gene": gene, "disease": disease},
+            )
+            confirmation_card = clinical_approval_manager.to_a2ui_card(hitl_action)
+            components.insert(0, {
+                "component": "ConfirmationDialog",
+                "id": confirmation_card["component_id"],
+                "props": confirmation_card,
+            })
+
+        # Attach any pending actions for this session
+        pending_actions = clinical_approval_manager.list_pending(session_id=sid)
+        for pact in pending_actions:
+            card_id = f"hitl-{pact.action_id}"
+            if not any(c.get("id") == card_id for c in components):
+                c_card = clinical_approval_manager.to_a2ui_card(pact)
+                components.insert(0, {
+                    "component": "ConfirmationDialog",
+                    "id": c_card["component_id"],
+                    "props": c_card,
+                })
+
         # 7. Assemble Standardized Declarative A2UI Payload
         a2ui_payload = {
             "type": "A2UI_SURFACE",
@@ -661,6 +713,46 @@ class CancerCoScientistOrchestrator:
                     }
                 },
             ]
+        }
+
+    def request_human_confirmation(
+        self,
+        action_type: str,
+        proposed_action: str,
+        clinical_rationale: str,
+        risk_level: str = "HIGH",
+        parameters: Optional[Dict[str, Any]] = None,
+        session_id: str = "default-session",
+    ) -> Dict[str, Any]:
+        """Request human clinician confirmation before executing high-stakes clinical actions.
+
+        Conforms to DOC-02 (Zero Ambient Authority) and DOC-03 (A2UI Protocols).
+
+        Args:
+            action_type (str): Type of high-stakes action ('OFF_LABEL_THERAPY_RECOMMENDATION', etc.).
+            proposed_action (str): Description of proposed clinical decision or computational task.
+            clinical_rationale (str): Biomedical and genomic evidence justification.
+            risk_level (str): Assessed risk severity ('LOW', 'MEDIUM', 'HIGH', 'CRITICAL').
+            parameters (Optional[Dict[str, Any]]): Execution parameters and payload dictionary.
+            session_id (str): Session identifier for state tracking.
+
+        Returns:
+            Dict[str, Any]: Action registration ticket and declarative A2UI confirmation card.
+        """
+        action = clinical_approval_manager.create_action(
+            action_type=action_type,
+            proposed_action=proposed_action,
+            clinical_rationale=clinical_rationale,
+            risk_level=risk_level,
+            parameters=parameters,
+            session_id=session_id,
+        )
+        return {
+            "status": "PENDING_APPROVAL",
+            "action_id": action.action_id,
+            "action": action.model_dump(),
+            "confirmation_card": clinical_approval_manager.to_a2ui_card(action),
+            "recovery_instruction": "Autonomous execution paused. Await clinician confirmation via POST /api/actions/{action_id}/approve.",
         }
 
 
@@ -830,6 +922,77 @@ async def reset_telemetry_endpoint() -> Dict[str, Any]:
     """Reset all in-memory telemetry, token counters, and latency measurements."""
     orchestrator.telemetry.reset()
     return {"status": "success", "message": "All telemetry metrics reset to zero baseline"}
+
+
+# -----------------------------------------------------------------------------
+# Human-in-the-Loop (HITL) Gatekeeper Endpoints (PAT-ZAA / DOC-02 / Spec 15 §3)
+# -----------------------------------------------------------------------------
+
+class ActionResolutionRequest(BaseModel):
+    comments: Optional[str] = Field(default=None, description="Optional clinician review comments")
+
+
+@app.get("/api/actions/pending", response_model=List[ClinicalAction])
+async def list_pending_actions_endpoint(
+    session_id: Optional[str] = Query(default=None, description="Filter by session ID"),
+    current_user: UserProfile = Depends(get_current_user),
+) -> List[ClinicalAction]:
+    """Retrieve all pending high-stakes clinical actions requiring clinician sign-off."""
+    return clinical_approval_manager.list_pending(session_id=session_id)
+
+
+@app.get("/api/actions/{action_id}", response_model=ClinicalAction)
+async def get_action_endpoint(
+    action_id: str,
+    current_user: UserProfile = Depends(get_current_user),
+) -> ClinicalAction:
+    """Retrieve details and audit metadata for a specific clinical action ticket."""
+    action = clinical_approval_manager.get_action(action_id)
+    if not action:
+        raise HTTPException(status_code=404, detail=f"Action '{action_id}' not found.")
+    return action
+
+
+@app.post("/api/actions/{action_id}/approve", response_model=ClinicalAction)
+async def approve_action_endpoint(
+    action_id: str,
+    req: Optional[ActionResolutionRequest] = None,
+    current_user: UserProfile = Depends(get_current_user),
+) -> ClinicalAction:
+    """Approve a pending high-stakes clinical action (unblocks downstream execution)."""
+    try:
+        reviewer = current_user.email or current_user.user_id or "clinician@cancercenter.org"
+        comments = req.comments if req else None
+        return clinical_approval_manager.approve_action(
+            action_id=action_id,
+            reviewer_id=reviewer,
+            comments=comments,
+        )
+    except KeyError:
+        raise HTTPException(status_code=404, detail=f"Action '{action_id}' not found.")
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@app.post("/api/actions/{action_id}/reject", response_model=ClinicalAction)
+async def reject_action_endpoint(
+    action_id: str,
+    req: Optional[ActionResolutionRequest] = None,
+    current_user: UserProfile = Depends(get_current_user),
+) -> ClinicalAction:
+    """Reject a pending high-stakes clinical action with optional clinician feedback."""
+    try:
+        reviewer = current_user.email or current_user.user_id or "clinician@cancercenter.org"
+        comments = req.comments if req else None
+        return clinical_approval_manager.reject_action(
+            action_id=action_id,
+            reviewer_id=reviewer,
+            comments=comments,
+        )
+    except KeyError:
+        raise HTTPException(status_code=404, detail=f"Action '{action_id}' not found.")
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
 
 # -----------------------------------------------------------------------------

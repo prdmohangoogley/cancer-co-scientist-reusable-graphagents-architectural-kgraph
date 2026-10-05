@@ -16,6 +16,15 @@ from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Set, Tuple
 from pydantic import BaseModel, Field
 
+try:
+    from packages.graphagent.observability.pii_scrubber import scrub_pii
+except (ImportError, ModuleNotFoundError):
+    try:
+        from observability.pii_scrubber import scrub_pii
+    except (ImportError, ModuleNotFoundError):
+        def scrub_pii(data: Any) -> Any:
+            return data
+
 logger = logging.getLogger("memory_bank")
 
 
@@ -234,8 +243,8 @@ class MemoryBankEngine:
         msg = ChatMessage(
             session_id=session_id,
             role=role,
-            content_text=content,
-            a2ui_payload_json=a2ui_payload,
+            content_text=scrub_pii(content),
+            a2ui_payload_json=scrub_pii(a2ui_payload) if a2ui_payload else None,
             token_count=token_count,
             created_at=now,
         )
@@ -278,8 +287,10 @@ class MemoryBankEngine:
         user_query: str,
         agent_response: str,
     ) -> Tuple[List[MemoryEntity], List[MemoryHypothesis]]:
-        """Extract precision oncology entities and hypotheses from the turn and consolidate to Memory Bank."""
-        combined_text = f"{user_query}\n{agent_response}"
+        """Extract precision oncology entities and hypotheses from the turn and consolidate to Memory Bank (with PII de-identification)."""
+        clean_user_query = scrub_pii(user_query)
+        clean_agent_response = scrub_pii(agent_response)
+        combined_text = f"{clean_user_query}\n{clean_agent_response}"
         text_lower = combined_text.lower()
 
         new_entities: List[MemoryEntity] = []

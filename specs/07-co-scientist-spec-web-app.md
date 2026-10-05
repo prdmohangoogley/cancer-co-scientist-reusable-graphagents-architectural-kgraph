@@ -123,6 +123,26 @@ Adhering to `PAT-ZAA` (Zero Ambient Authority) and enterprise security best prac
    - Rate limiting enforced at 60 chat requests/minute per authenticated user session.
    - Cloud Armor WAF policies protect against OWASP Top 10 vulnerabilities, API abuse, and credential stuffing.
 
+### 2.3. Human-in-the-Loop (HITL) Gatekeeper for High-Stakes Actions (DOC-02, DOC-03)
+1. **High-Stakes Classification**:
+   - Actions proposing off-label drug combinations, trial enrollment, critical dosage changes, cluster simulations, or patient state mutations require explicit oncologist sign-off.
+2. **Interactive A2UI Confirmation Workflow**:
+   - The Orchestrator halts autonomous execution and emits a declarative `ConfirmationDialog` / `HumanApprovalCard` via A2UI containing risk level, therapeutic justification, and approval tokens.
+   - Execution only resumes upon receiving a signed approval payload at `POST /api/actions/{action_id}/approve`.
+
+### 2.4. Production Secret Management & Zero Ambient Authority (DOC-02)
+1. **Zero Hardcoded Secrets**:
+   - Hardcoded secret fallbacks are strictly prohibited across all repositories and libraries.
+2. **Secret Resolution Hierarchy**:
+   - 1) Check `JWT_SECRET_KEY` / `AUTH_JWT_SECRET` environment variables.
+   - 2) Resolve from Google Cloud Secret Manager (`projects/{project}/secrets/jwt-secret-key/versions/latest`).
+   - 3) Fallback dynamically to cryptographically secure runtime entropy (`secrets.token_urlsafe(32)`) in local isolated test harnesses with an audit warning.
+
+### 2.5. HIPAA / GDPR PII & PHI De-Identification Interceptors (DOC-01, DOC-02)
+1. **Safe Harbor Sanitization Engine**:
+   - All inbound prompts, outbound responses, tool parameters, trace spans, and Memory Bank facts pass through the `PIIScrubber` engine.
+   - Redacts patient names, MRNs, SSNs, phone numbers, email addresses, and dates of birth with standardized `[REDACTED_*]` tokens before persistence in Spanner or Cloud Logging.
+
 ---
 
 ## 3. Telemetry, Observability Management & Error Handling (DOC-01)

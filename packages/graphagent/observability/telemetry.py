@@ -25,6 +25,15 @@ if __name__ == "observability.telemetry":
 elif __name__ == "packages.graphagent.observability.telemetry":
     sys.modules.setdefault("observability.telemetry", sys.modules[__name__])
 
+try:
+    from packages.graphagent.observability.pii_scrubber import scrub_pii
+except (ImportError, ModuleNotFoundError):
+    try:
+        from observability.pii_scrubber import scrub_pii
+    except (ImportError, ModuleNotFoundError):
+        def scrub_pii(data: Any) -> Any:
+            return data
+
 from opentelemetry import metrics, trace
 from opentelemetry.sdk.metrics import MeterProvider
 from opentelemetry.sdk.resources import Resource
@@ -289,24 +298,37 @@ def emit_cloud_log(
     message: str,
     severity: str = "INFO",
     json_payload: Optional[dict[str, Any]] = None,
+    **kwargs: Any,
 ) -> bool:
-    """Emit structured log message directly to Google Cloud Logging."""
+    """Emit structured log message directly to Google Cloud Logging with PII/PHI de-identification."""
     cloud_logger = get_cloud_logger()
     if not cloud_logger:
         return False
 
     try:
+        # Gracefully handle swapped arguments e.g. emit_cloud_log("INFO", "msg", ...)
+        log_levels = {"INFO", "WARNING", "ERROR", "CRITICAL", "DEBUG", "DEFAULT"}
+        if message.upper() in log_levels and isinstance(severity, str) and severity.upper() not in log_levels:
+            actual_severity = message.upper()
+            actual_message = severity
+        else:
+            actual_message = message
+            actual_severity = severity.upper() if isinstance(severity, str) else "INFO"
+
+        sanitized_message = scrub_pii(actual_message)
         payload = {
-            "message": message,
+            "message": sanitized_message,
             "agent": "cancer-co-scientist-lead-orchestrator",
             "reasoning_engine_id": os.getenv("GEA_REASONING_ENGINE_ID", "4359942935643422720"),
             "region": os.getenv("GEA_REGION", "us-east1"),
             "timestamp": time.time(),
         }
         if json_payload:
-            payload.update(json_payload)
+            payload.update(scrub_pii(json_payload))
+        if kwargs:
+            payload.update(scrub_pii(kwargs))
 
-        cloud_logger.log_struct(payload, severity=severity)
+        cloud_logger.log_struct(payload, severity=actual_severity)
         return True
     except Exception as e:
         logger.debug(f"Cloud Logging emission failed: {e}")
@@ -578,7 +600,8 @@ def trace_span(
             span.set_attribute("user_id", user_id)
 
         if attributes:
-            for k, v in attributes.items():
+            sanitized_attrs = scrub_pii(attributes)
+            for k, v in sanitized_attrs.items():
                 if v is not None:
                     span.set_attribute(k, str(v) if not isinstance(v, (int, float, bool)) else v)
 
@@ -588,7 +611,7 @@ def trace_span(
         except Exception as exc:
             span.record_exception(exc)
             span.set_attribute("error", True)
-            span.set_attribute("error.message", str(exc))
+            span.set_attribute("error.message", scrub_pii(str(exc)))
             raise
         finally:
             elapsed_ms = round((time.time() - t0) * 1000, 2)

@@ -23,8 +23,55 @@ from pydantic import BaseModel, Field
 
 logger = logging.getLogger("auth")
 
+import secrets
+
+_CACHED_JWT_SECRET: Optional[str] = None
+
+def get_jwt_secret() -> str:
+    """Retrieve JWT secret adhering to Zero Ambient Authority (PAT-ZAA / DOC-02).
+    
+    Resolution hierarchy:
+    1. Environment variables (`JWT_SECRET_KEY` or `AUTH_JWT_SECRET`).
+    2. Google Cloud Secret Manager (`projects/{project_id}/secrets/jwt-secret-key/versions/latest`).
+    3. Ephemeral cryptographically secure 256-bit entropy (`secrets.token_urlsafe(32)`)
+       with audit notice for local isolated development.
+       Eliminates all static hardcoded secret fallbacks.
+    """
+    global _CACHED_JWT_SECRET
+    if _CACHED_JWT_SECRET:
+        return _CACHED_JWT_SECRET
+
+    # 1. Check environment variables
+    env_secret = os.getenv("JWT_SECRET_KEY") or os.getenv("AUTH_JWT_SECRET")
+    if env_secret and env_secret != "coscientist-zaa-super-secret-key-32bytes-min!":
+        _CACHED_JWT_SECRET = env_secret
+        return _CACHED_JWT_SECRET
+
+    # 2. Query Google Cloud Secret Manager if available
+    project_id = os.getenv("GCP_PROJECT") or os.getenv("GOOGLE_CLOUD_PROJECT") or "fivedaysai-prd-sandbox-317383"
+    try:
+        from google.cloud import secretmanager
+        client = secretmanager.SecretManagerServiceClient()
+        name = f"projects/{project_id}/secrets/jwt-secret-key/versions/latest"
+        response = client.access_secret_version(request={"name": name})
+        secret_val = response.payload.data.decode("UTF-8").strip()
+        if secret_val:
+            _CACHED_JWT_SECRET = secret_val
+            logger.info("Successfully resolved JWT secret from Google Cloud Secret Manager.")
+            return _CACHED_JWT_SECRET
+    except Exception as e:
+        logger.debug(f"Secret Manager resolution skipped/unavailable: {e}")
+
+    # 3. Dynamic runtime cryptographic entropy generation (No hardcoded strings)
+    logger.warning(
+        "[SEC-AUDIT] No JWT secret configured via environment or Secret Manager. "
+        "Generating dynamic ephemeral 256-bit entropy for Zero Ambient Authority."
+    )
+    _CACHED_JWT_SECRET = secrets.token_urlsafe(32)
+    return _CACHED_JWT_SECRET
+
+
 # Enterprise JWT Configuration under Zero Ambient Authority
-AUTH_JWT_SECRET = os.getenv("AUTH_JWT_SECRET", "coscientist-zaa-super-secret-key-32bytes-min!")
 JWT_ALGORITHM = "HS256"
 JWT_ISSUER = "https://auth.cancer-coscientist.app"
 JWT_AUDIENCE = "cancer-coscientist-backend"
@@ -210,7 +257,7 @@ def create_access_token(user: UserProfile, expires_minutes: int = ACCESS_TOKEN_E
         "exp": int(expire.timestamp()),
     }
 
-    return jwt.encode(payload, AUTH_JWT_SECRET, algorithm=JWT_ALGORITHM)
+    return jwt.encode(payload, get_jwt_secret(), algorithm=JWT_ALGORITHM)
 
 
 def verify_access_token(token: str) -> UserProfile:
@@ -218,7 +265,7 @@ def verify_access_token(token: str) -> UserProfile:
     try:
         payload = jwt.decode(
             token,
-            AUTH_JWT_SECRET,
+            get_jwt_secret(),
             algorithms=[JWT_ALGORITHM],
             audience=JWT_AUDIENCE,
             issuer=JWT_ISSUER,

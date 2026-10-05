@@ -112,6 +112,9 @@ export class A2UIRenderer {
         return this.renderSimulationViewer(comp.props);
       case 'ToxicityWarning':
         return this.renderToxicityWarning(comp.props);
+      case 'ConfirmationDialog':
+      case 'HumanApprovalCard':
+        return this.renderConfirmationDialog(comp.props);
       default:
         console.warn(`Unrecognized A2UI component type: ${comp.component}`);
         return null;
@@ -923,4 +926,164 @@ export class A2UIRenderer {
 
     return card;
   }
+
+  /**
+   * 8. Render a ConfirmationDialog / HumanApprovalCard component (HITL).
+   * Conforms to DOC-02 (ZAA) and DOC-03 (Declarative Non-executable JSON).
+   */
+  private renderConfirmationDialog(props: Record<string, any>): HTMLElement {
+    const card = document.createElement('div');
+    const riskLevel = (props.risk_level || 'HIGH').toUpperCase();
+    const severity = props.severity || (riskLevel === 'CRITICAL' ? 'critical' : 'warning');
+    card.className = `a2ui-card hitl-approval-card ${severity}`;
+    card.id = props.component_id || `hitl-${props.action_id || 'dialog'}`;
+
+    // Header
+    const header = document.createElement('div');
+    header.className = 'card-header hitl-header';
+
+    const titleGroup = document.createElement('div');
+    titleGroup.className = 'card-title-group';
+
+    const title = document.createElement('h3');
+    title.className = 'card-title';
+    title.textContent = props.title || 'Clinician Confirmation Required';
+    titleGroup.appendChild(title);
+
+    const sub = document.createElement('div');
+    sub.className = 'card-subtitle';
+    sub.textContent = `Action ID: ${props.action_id || 'N/A'} • Requires explicit sign-off`;
+    titleGroup.appendChild(sub);
+    header.appendChild(titleGroup);
+
+    const badge = document.createElement('span');
+    badge.className = `severity-badge ${severity}`;
+    badge.textContent = `Risk: ${riskLevel}`;
+    header.appendChild(badge);
+    card.appendChild(header);
+
+    // Body
+    const body = document.createElement('div');
+    body.className = 'hitl-body';
+
+    // Proposed Action Box
+    const actionBox = document.createElement('div');
+    actionBox.className = 'hitl-proposed-action';
+    const actionLabel = document.createElement('strong');
+    actionLabel.textContent = 'Proposed Action: ';
+    const actionDesc = document.createElement('span');
+    actionDesc.textContent = props.proposed_action || 'N/A';
+    actionBox.appendChild(actionLabel);
+    actionBox.appendChild(actionDesc);
+    body.appendChild(actionBox);
+
+    // Clinical Rationale Box
+    if (props.clinical_rationale) {
+      const rationaleBox = document.createElement('div');
+      rationaleBox.className = 'hitl-rationale-box';
+      const ratLabel = document.createElement('strong');
+      ratLabel.textContent = 'Clinical Justification & Evidence: ';
+      const ratDesc = document.createElement('span');
+      ratDesc.textContent = props.clinical_rationale;
+      rationaleBox.appendChild(ratLabel);
+      rationaleBox.appendChild(ratDesc);
+      body.appendChild(rationaleBox);
+    }
+
+    // Parameters details
+    if (props.parameters && Object.keys(props.parameters).length > 0) {
+      const paramSection = document.createElement('div');
+      paramSection.className = 'hitl-params-section';
+      const paramHeading = document.createElement('div');
+      paramHeading.className = 'hitl-params-title';
+      paramHeading.textContent = 'Execution Parameters:';
+      paramSection.appendChild(paramHeading);
+
+      const paramPre = document.createElement('pre');
+      paramPre.className = 'hitl-params-code';
+      paramPre.textContent = JSON.stringify(props.parameters, null, 2);
+      paramSection.appendChild(paramPre);
+      body.appendChild(paramSection);
+    }
+
+    // Status Message container
+    const statusBanner = document.createElement('div');
+    statusBanner.className = 'hitl-status-banner';
+    statusBanner.textContent = `Current Status: ${props.status || 'PENDING'}`;
+    body.appendChild(statusBanner);
+
+    // Actions Button Bar
+    const actionsBar = document.createElement('div');
+    actionsBar.className = 'hitl-actions-bar';
+
+    const actions = props.actions || [
+      {
+        label: 'Approve Clinical Action',
+        action: 'APPROVE',
+        endpoint: `/api/actions/${props.action_id}/approve`,
+        style: 'primary',
+      },
+      {
+        label: 'Reject Action',
+        action: 'REJECT',
+        endpoint: `/api/actions/${props.action_id}/reject`,
+        style: 'secondary',
+      },
+    ];
+
+    for (const act of actions) {
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = `btn btn-${act.style || 'secondary'} hitl-btn`;
+      btn.textContent = act.label;
+
+      btn.addEventListener('click', async () => {
+        btn.disabled = true;
+        btn.textContent = act.action === 'APPROVE' ? 'Approving...' : 'Rejecting...';
+
+        const token = sessionStorage.getItem('jwt_token') || '';
+        try {
+          const res = await fetch(act.endpoint, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': token ? `Bearer ${token}` : '',
+            },
+            body: JSON.stringify({
+              comments: act.action === 'APPROVE' ? 'Approved by clinician via A2UI' : 'Rejected by clinician via A2UI',
+            }),
+          });
+
+          if (!res.ok) {
+            const errData = await res.json().catch(() => ({ detail: res.statusText }));
+            throw new Error(errData.detail || `Request failed with code ${res.status}`);
+          }
+
+          const result = await res.json();
+          statusBanner.textContent = `Status: ${result.status || act.action} (Confirmed by clinician)`;
+          statusBanner.className = act.action === 'APPROVE' ? 'hitl-status-banner approved' : 'hitl-status-banner rejected';
+          btn.textContent = act.action === 'APPROVE' ? '✓ Approved' : '✕ Rejected';
+          btn.classList.add(act.action === 'APPROVE' ? 'btn-success' : 'btn-danger');
+
+          // Disable sibling buttons
+          const siblings = actionsBar.querySelectorAll('button');
+          siblings.forEach((s) => {
+            if (s !== btn) s.style.display = 'none';
+          });
+        } catch (err: any) {
+          btn.disabled = false;
+          btn.textContent = act.label;
+          statusBanner.textContent = `Action Error: ${err.message || String(err)}`;
+          statusBanner.className = 'hitl-status-banner error';
+        }
+      });
+
+      actionsBar.appendChild(btn);
+    }
+
+    body.appendChild(actionsBar);
+    card.appendChild(body);
+    return card;
+  }
 }
+
